@@ -1,6 +1,6 @@
+using Microsoft.EntityFrameworkCore;
 using Trax.Effect.Data.Postgres.Extensions;
 using Trax.Effect.Data.Services.DataContext;
-using Microsoft.EntityFrameworkCore;
 
 namespace Trax.Effect.Data.Postgres.Services.PostgresContext;
 

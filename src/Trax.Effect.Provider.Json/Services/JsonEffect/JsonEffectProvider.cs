@@ -1,7 +1,7 @@
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using Trax.Effect.Configuration.TraxEffectConfiguration;
 using Trax.Effect.Models;
-using Microsoft.Extensions.Logging;
 
 namespace Trax.Effect.Provider.Json.Services.JsonEffect;
 

@@ -1,4 +1,8 @@
 using System.Text.Json;
+using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 using Trax.Effect.Configuration.TraxEffectConfiguration;
 using Trax.Effect.Models.Metadata;
 using Trax.Effect.Provider.Json.Services.JsonEffect;
@@ -9,10 +13,6 @@ using Trax.Effect.Services.EffectRegistry;
 using Trax.Effect.Services.EffectRunner;
 using Trax.Effect.Tests.MemoryLeak.Integration.TestWorkflows.TestModels;
 using Trax.Effect.Tests.MemoryLeak.Integration.Utils;
-using FluentAssertions;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 
 namespace Trax.Effect.Tests.MemoryLeak.Integration.IntegrationTests;
 
@@ -34,7 +34,7 @@ public class CrossComponentMemoryTests
         _jsonOptions = new JsonSerializerOptions
         {
             WriteIndented = false,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         };
 
         var services = new ServiceCollection();
@@ -87,12 +87,12 @@ public class CrossComponentMemoryTests
                             ProcessedAt = DateTime.UtcNow,
                             ProcessedData = new string('X', 3000), // 3KB
                             Success = true,
-                            Message = $"Cross-component test output {iteration}_{metadataIndex}"
+                            Message = $"Cross-component test output {iteration}_{metadataIndex}",
                         };
 
                         var metadata = new Metadata
                         {
-                            Name = $"CrossComponentMetadata_{iteration}_{metadataIndex}"
+                            Name = $"CrossComponentMetadata_{iteration}_{metadataIndex}",
                         };
                         metadata.SetInputObject(input);
                         metadata.SetOutputObject(output);
@@ -160,7 +160,7 @@ public class CrossComponentMemoryTests
                     var providerFactories = new List<IEffectProviderFactory>
                     {
                         parameterFactory,
-                        jsonFactory
+                        jsonFactory,
                     };
 
                     using var effectRunner = new EffectRunner(
@@ -184,12 +184,12 @@ public class CrossComponentMemoryTests
                             ProcessedAt = DateTime.UtcNow,
                             ProcessedData = new string('R', 2500), // 2.5KB
                             Success = true,
-                            Message = $"Effect runner output {iteration}_{metadataIndex}"
+                            Message = $"Effect runner output {iteration}_{metadataIndex}",
                         };
 
                         var metadata = new Metadata
                         {
-                            Name = $"EffectRunnerMetadata_{iteration}_{metadataIndex}"
+                            Name = $"EffectRunnerMetadata_{iteration}_{metadataIndex}",
                         };
                         metadata.SetInputObject(input);
                         metadata.SetOutputObject(output);
@@ -266,7 +266,7 @@ public class CrossComponentMemoryTests
                             ProcessedAt = DateTime.UtcNow,
                             ProcessedData = new string('E', 2000), // 2KB
                             Success = iteration % 3 != 0, // Fail every 3rd iteration
-                            Message = $"Exception test output {iteration}"
+                            Message = $"Exception test output {iteration}",
                         };
 
                         var metadata = new Metadata { Name = $"ExceptionMetadata_{iteration}" };
@@ -358,12 +358,12 @@ public class CrossComponentMemoryTests
                                 ProcessedAt = DateTime.UtcNow,
                                 ProcessedData = new string('C', 2000), // 2KB
                                 Success = true,
-                                Message = $"Concurrent output {taskId}_{iteration}"
+                                Message = $"Concurrent output {taskId}_{iteration}",
                             };
 
                             var metadata = new Metadata
                             {
-                                Name = $"ConcurrentMetadata_{taskId}_{iteration}"
+                                Name = $"ConcurrentMetadata_{taskId}_{iteration}",
                             };
                             metadata.SetInputObject(input);
                             metadata.SetOutputObject(output);
@@ -410,8 +410,7 @@ public class CrossComponentMemoryTests
 }
 
 // Mock configuration for testing
-public class MockTraxEffectConfiguration(JsonSerializerOptions options)
-    : ITraxEffectConfiguration
+public class MockTraxEffectConfiguration(JsonSerializerOptions options) : ITraxEffectConfiguration
 {
     public JsonSerializerOptions SystemJsonSerializerOptions { get; } = options;
 

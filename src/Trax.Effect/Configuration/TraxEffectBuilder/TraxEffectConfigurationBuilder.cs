@@ -1,9 +1,9 @@
 using System.Text.Json;
-using Trax.Effect.Services.EffectRegistry;
-using Trax.Effect.Utils;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using Trax.Effect.Services.EffectRegistry;
+using Trax.Effect.Utils;
 
 namespace Trax.Effect.Configuration.TraxEffectBuilder;
 
@@ -38,9 +38,8 @@ public class TraxEffectConfigurationBuilder(
             LogLevel = LogLevel,
         };
 
-        TraxEffectConfiguration
-            .TraxEffectConfiguration
-            .StaticSystemJsonSerializerOptions = WorkflowParameterJsonSerializerOptions;
+        TraxEffectConfiguration.TraxEffectConfiguration.StaticSystemJsonSerializerOptions =
+            WorkflowParameterJsonSerializerOptions;
 
         return configuration;
     }

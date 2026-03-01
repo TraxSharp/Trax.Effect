@@ -1,7 +1,7 @@
 using System.Text.Json;
-using Trax.Effect.Utils;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using Trax.Effect.Utils;
 
 namespace Trax.Effect.Configuration.TraxEffectConfiguration;
 

@@ -1,4 +1,5 @@
 using System.Reflection;
+using Microsoft.Extensions.DependencyInjection;
 using Trax.Effect.Attributes;
 using Trax.Effect.Configuration.TraxEffectBuilder;
 using Trax.Effect.Configuration.TraxEffectConfiguration;
@@ -7,7 +8,6 @@ using Trax.Effect.Services.EffectRegistry;
 using Trax.Effect.Services.EffectRunner;
 using Trax.Effect.Services.StepEffectProviderFactory;
 using Trax.Effect.Services.StepEffectRunner;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Trax.Effect.Extensions;
 
@@ -101,11 +101,11 @@ public static class ServiceExtensions
     {
         builder
             .ServiceCollection.AddSingleton<TEffectProviderFactory>(factory)
-            .AddSingleton<IEffectProviderFactory>(
-                sp => sp.GetRequiredService<TEffectProviderFactory>()
+            .AddSingleton<IEffectProviderFactory>(sp =>
+                sp.GetRequiredService<TEffectProviderFactory>()
             )
-            .AddSingleton<TIEffectProviderFactory>(
-                sp => sp.GetRequiredService<TEffectProviderFactory>()
+            .AddSingleton<TIEffectProviderFactory>(sp =>
+                sp.GetRequiredService<TEffectProviderFactory>()
             );
 
         builder.EffectRegistry?.Register(typeof(TEffectProviderFactory), toggleable: toggleable);
@@ -121,8 +121,8 @@ public static class ServiceExtensions
     {
         builder
             .ServiceCollection.AddSingleton<TEffectProviderFactory>()
-            .AddSingleton<IEffectProviderFactory>(
-                sp => sp.GetRequiredService<TEffectProviderFactory>()
+            .AddSingleton<IEffectProviderFactory>(sp =>
+                sp.GetRequiredService<TEffectProviderFactory>()
             );
 
         builder.EffectRegistry?.Register(typeof(TEffectProviderFactory), toggleable: toggleable);
@@ -139,11 +139,11 @@ public static class ServiceExtensions
     {
         builder
             .ServiceCollection.AddSingleton<TEffectProviderFactory>()
-            .AddSingleton<IEffectProviderFactory>(
-                sp => sp.GetRequiredService<TEffectProviderFactory>()
+            .AddSingleton<IEffectProviderFactory>(sp =>
+                sp.GetRequiredService<TEffectProviderFactory>()
             )
-            .AddSingleton<TIEffectProviderFactory>(
-                sp => sp.GetRequiredService<TEffectProviderFactory>()
+            .AddSingleton<TIEffectProviderFactory>(sp =>
+                sp.GetRequiredService<TEffectProviderFactory>()
             );
 
         builder.EffectRegistry?.Register(typeof(TEffectProviderFactory), toggleable: toggleable);
@@ -182,11 +182,11 @@ public static class ServiceExtensions
     {
         builder
             .ServiceCollection.AddSingleton<TStepEffectProviderFactory>(factory)
-            .AddSingleton<IStepEffectProviderFactory>(
-                sp => sp.GetRequiredService<TStepEffectProviderFactory>()
+            .AddSingleton<IStepEffectProviderFactory>(sp =>
+                sp.GetRequiredService<TStepEffectProviderFactory>()
             )
-            .AddSingleton<TIStepEffectProviderFactory>(
-                sp => sp.GetRequiredService<TStepEffectProviderFactory>()
+            .AddSingleton<TIStepEffectProviderFactory>(sp =>
+                sp.GetRequiredService<TStepEffectProviderFactory>()
             );
 
         builder.EffectRegistry?.Register(
@@ -205,8 +205,8 @@ public static class ServiceExtensions
     {
         builder
             .ServiceCollection.AddSingleton<TStepEffectProviderFactory>()
-            .AddSingleton<IStepEffectProviderFactory>(
-                sp => sp.GetRequiredService<TStepEffectProviderFactory>()
+            .AddSingleton<IStepEffectProviderFactory>(sp =>
+                sp.GetRequiredService<TStepEffectProviderFactory>()
             );
 
         builder.EffectRegistry?.Register(

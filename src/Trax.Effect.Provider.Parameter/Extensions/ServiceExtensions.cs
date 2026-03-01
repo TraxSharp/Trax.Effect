@@ -1,11 +1,11 @@
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Trax.Effect.Configuration.TraxEffectBuilder;
 using Trax.Effect.Extensions;
 using Trax.Effect.Provider.Parameter.Configuration;
 using Trax.Effect.Provider.Parameter.Services.ParameterEffectProviderFactory;
 using Trax.Effect.Services.EffectProviderFactory;
 using Trax.Effect.Utils;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Trax.Effect.Provider.Parameter.Extensions;
 

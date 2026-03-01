@@ -1,13 +1,13 @@
+using FluentAssertions;
+using LanguageExt;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Trax.Effect.Data.Services.DataContext;
 using Trax.Effect.Data.Services.IDataContextFactory;
 using Trax.Effect.Enums;
 using Trax.Effect.Extensions;
 using Trax.Effect.Models.Metadata.DTOs;
 using Trax.Effect.Services.ServiceTrain;
-using FluentAssertions;
-using LanguageExt;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Metadata = Trax.Effect.Models.Metadata.Metadata;
 
 namespace Trax.Effect.Tests.Data.InMemory.Integration.IntegrationTests;
@@ -32,7 +32,7 @@ public class InMemoryProviderTests : TestSetup
             {
                 Name = "TestMetadata",
                 Input = Unit.Default,
-                ExternalId = Guid.NewGuid().ToString("N")
+                ExternalId = Guid.NewGuid().ToString("N"),
             }
         );
 

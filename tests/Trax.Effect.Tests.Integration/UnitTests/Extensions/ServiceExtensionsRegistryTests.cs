@@ -1,11 +1,11 @@
+using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 using Trax.Effect.Extensions;
 using Trax.Effect.Provider.Json.Extensions;
 using Trax.Effect.Provider.Json.Services.JsonEffectFactory;
 using Trax.Effect.Services.EffectRegistry;
 using Trax.Effect.StepProvider.Logging.Extensions;
 using Trax.Effect.StepProvider.Logging.Services.StepLoggerFactory;
-using FluentAssertions;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Trax.Effect.Tests.Integration.UnitTests.Extensions;
 

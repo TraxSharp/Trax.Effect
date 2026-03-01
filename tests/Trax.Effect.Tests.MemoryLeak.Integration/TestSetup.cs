@@ -1,11 +1,11 @@
-using Trax.Effect.Data.InMemory.Extensions;
-using Trax.Effect.Extensions;
-using Trax.Mediator.Extensions;
-using Trax.Mediator.Services.WorkflowBus;
-using Trax.Effect.Provider.Json.Extensions;
-using Trax.Effect.Provider.Parameter.Extensions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Trax.Effect.Data.InMemory.Extensions;
+using Trax.Effect.Extensions;
+using Trax.Effect.Provider.Json.Extensions;
+using Trax.Effect.Provider.Parameter.Extensions;
+using Trax.Mediator.Extensions;
+using Trax.Mediator.Services.WorkflowBus;
 
 namespace Trax.Effect.Tests.MemoryLeak.Integration;
 

@@ -1,12 +1,12 @@
+using FluentAssertions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Newtonsoft.Json;
 using Trax.Effect.Configuration.TraxEffectConfiguration;
 using Trax.Effect.Models.Metadata;
 using Trax.Effect.Provider.Json.Services.JsonEffect;
 using Trax.Effect.Tests.MemoryLeak.Integration.TestWorkflows.TestModels;
 using Trax.Effect.Tests.MemoryLeak.Integration.Utils;
-using FluentAssertions;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
-using Newtonsoft.Json;
 
 namespace Trax.Effect.Tests.MemoryLeak.Integration.IntegrationTests;
 
@@ -57,7 +57,7 @@ public class JsonEffectProviderMemoryTests
                                 Message = $"Test output {i}_{j}",
                                 ProcessedData = new string('X', 500), // 500 characters
                                 Success = true,
-                                ProcessedAt = DateTime.UtcNow
+                                ProcessedAt = DateTime.UtcNow,
                             }
                         );
 
@@ -123,7 +123,7 @@ public class JsonEffectProviderMemoryTests
                             Message = $"Large output {i}",
                             ProcessedData = new string('Y', 2000), // 2KB string
                             Success = true,
-                            ProcessedAt = DateTime.UtcNow
+                            ProcessedAt = DateTime.UtcNow,
                         }
                     );
 
@@ -206,7 +206,7 @@ public class JsonEffectProviderMemoryTests
                                     Message = $"Concurrent output {taskId}_{i}",
                                     ProcessedData = new string('Z', 1000), // 1KB string
                                     Success = true,
-                                    ProcessedAt = DateTime.UtcNow
+                                    ProcessedAt = DateTime.UtcNow,
                                 }
                             );
 
@@ -276,7 +276,7 @@ public class JsonEffectProviderMemoryTests
                                 Message = $"Iteration {iteration} output",
                                 ProcessedData = new string(iterationChar, 1500), // 1.5KB string
                                 Success = true,
-                                ProcessedAt = DateTime.UtcNow
+                                ProcessedAt = DateTime.UtcNow,
                             }
                         );
                     }
@@ -355,7 +355,7 @@ public class JsonEffectProviderMemoryTests
                             Message = $"Large output {i}",
                             ProcessedData = new string('L', 25_000), // 25KB string
                             Success = true,
-                            ProcessedAt = DateTime.UtcNow
+                            ProcessedAt = DateTime.UtcNow,
                         }
                     );
 
@@ -416,7 +416,7 @@ public class JsonEffectProviderMemoryTests
                             Message = $"Duplicate output {i}",
                             ProcessedData = new string('D', 5000), // 5KB string
                             Success = true,
-                            ProcessedAt = DateTime.UtcNow
+                            ProcessedAt = DateTime.UtcNow,
                         }
                     );
 

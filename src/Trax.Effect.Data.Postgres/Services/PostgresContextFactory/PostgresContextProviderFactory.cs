@@ -1,8 +1,8 @@
 using System.Threading;
+using Microsoft.EntityFrameworkCore;
 using Trax.Effect.Data.Services.DataContext;
 using Trax.Effect.Data.Services.IDataContextFactory;
 using Trax.Effect.Services.EffectProvider;
-using Microsoft.EntityFrameworkCore;
 
 namespace Trax.Effect.Data.Postgres.Services.PostgresContextFactory;
 

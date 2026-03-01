@@ -63,7 +63,7 @@ public static class TraxJsonSerializationOptions
                 new JsonStringEnumConverter(),
                 new ValueTupleConverter(),
                 new SystemTypeConverter(),
-            }
+            },
         };
 
     /// <summary>
@@ -86,13 +86,13 @@ public static class TraxJsonSerializationOptions
                 new JsonStringEnumConverter(),
                 new ValueTupleConverter(),
                 new SystemTypeConverter(),
-            }
+            },
         };
 
     public static JsonSerializerSettings NewtonsoftDefault { get; set; } =
         new()
         {
             ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
-            Converters = [new Newtonsoft.Json.Converters.StringEnumConverter()]
+            Converters = [new Newtonsoft.Json.Converters.StringEnumConverter()],
         };
 }

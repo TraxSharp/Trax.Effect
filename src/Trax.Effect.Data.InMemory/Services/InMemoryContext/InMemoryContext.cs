@@ -1,5 +1,5 @@
-using Trax.Effect.Data.Services.DataContext;
 using Microsoft.EntityFrameworkCore;
+using Trax.Effect.Data.Services.DataContext;
 
 namespace Trax.Effect.Data.InMemory.Services.InMemoryContext;
 

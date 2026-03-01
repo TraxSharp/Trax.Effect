@@ -1,5 +1,5 @@
-using Trax.Effect.Configuration.TraxEffectBuilder;
 using Microsoft.Extensions.Logging;
+using Trax.Effect.Configuration.TraxEffectBuilder;
 
 namespace Trax.Effect.Extensions;
 

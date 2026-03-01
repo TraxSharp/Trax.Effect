@@ -2,11 +2,11 @@ using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using LanguageExt;
 using Trax.Effect.Configuration.TraxEffectConfiguration;
 using Trax.Effect.Enums;
 using Trax.Effect.Models.Manifest.DTOs;
 using Trax.Effect.Utils;
-using LanguageExt;
 
 namespace Trax.Effect.Models.Manifest;
 
@@ -238,9 +238,7 @@ public class Manifest : IModel
             var reordered = new JsonObject { ["$type"] = propertiesType.FullName };
             foreach (var kvp in obj)
                 reordered[kvp.Key] = kvp.Value?.DeepClone();
-            Properties = reordered.ToJsonString(
-                TraxJsonSerializationOptions.ManifestProperties
-            );
+            Properties = reordered.ToJsonString(TraxJsonSerializationOptions.ManifestProperties);
         }
         else
         {

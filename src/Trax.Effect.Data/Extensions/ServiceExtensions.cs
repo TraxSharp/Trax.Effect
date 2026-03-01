@@ -1,7 +1,7 @@
-using Trax.Effect.Configuration.TraxEffectBuilder;
-using Trax.Effect.Data.Services.DataContextLoggingProvider;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Trax.Effect.Configuration.TraxEffectBuilder;
+using Trax.Effect.Data.Services.DataContextLoggingProvider;
 
 namespace Trax.Effect.Data.Extensions;
 
@@ -74,7 +74,7 @@ public static class ServiceExtensions
         var credentials = new DataContextLoggingProviderConfiguration
         {
             MinimumLogLevel = minimumLogLevel ?? LogLevel.Information,
-            Blacklist = blacklist ?? []
+            Blacklist = blacklist ?? [],
         };
 
         configurationBuilder
