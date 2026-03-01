@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Trax.Effect.Configuration.Trax.CoreEffectConfiguration;
+using Trax.Effect.Configuration.TraxEffectConfiguration;
 using Trax.Effect.Models.StepMetadata.DTOs;
 using LanguageExt;
 
@@ -77,7 +77,7 @@ public class StepMetadata : IModel
     public override string ToString() =>
         JsonSerializer.Serialize(
             this,
-            Trax.CoreEffectConfiguration.StaticSystemJsonSerializerOptions
+            TraxEffectConfiguration.StaticSystemJsonSerializerOptions
         );
 
     #endregion

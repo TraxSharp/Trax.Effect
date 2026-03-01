@@ -1,4 +1,4 @@
-using Trax.Effect.Configuration.Trax.CoreEffectConfiguration;
+using Trax.Effect.Configuration.TraxEffectConfiguration;
 using Trax.Effect.Services.EffectStep;
 using Trax.Effect.Services.ServiceTrain;
 using Trax.Core.Exceptions;
@@ -10,7 +10,7 @@ using JsonSerializer = System.Text.Json.JsonSerializer;
 namespace Trax.Effect.StepProvider.Logging.Services.StepLoggerProvider;
 
 public class StepLoggerProvider(
-    ITrax.CoreEffectConfiguration configuration,
+    ITraxEffectConfiguration configuration,
     ILogger<StepLoggerProvider> logger
 ) : IStepLoggerProvider
 {

@@ -15,7 +15,7 @@ namespace Trax.Effect.Tests.Data.InMemory.Integration.IntegrationTests;
 public class InMemoryProviderTests : TestSetup
 {
     public override ServiceProvider ConfigureServices(IServiceCollection services) =>
-        services.AddScopedTrax.CoreRoute<ITestWorkflow, TestWorkflow>().BuildServiceProvider();
+        services.AddScopedTraxRoute<ITestWorkflow, TestWorkflow>().BuildServiceProvider();
 
     [Test]
     [Ignore("Serialization Failing for Input/Output Objects.")]

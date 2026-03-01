@@ -32,7 +32,7 @@ public static class TestSetup
         });
 
         // Add Trax.Core Effect services with all providers
-        services.AddTrax.CoreEffects(options =>
+        services.AddTraxEffects(options =>
         {
             // Use InMemory data context for tests (no external database dependencies)
             options.AddInMemoryEffect();
@@ -75,7 +75,7 @@ public static class TestSetup
         });
 
         // Configure Trax.Core without data persistence to focus on memory testing
-        services.AddTrax.CoreEffects(options =>
+        services.AddTraxEffects(options =>
         {
             // No data context - focus purely on memory leak testing
             options.AddServiceTrainBus(
@@ -111,7 +111,7 @@ public static class TestSetup
             builder.SetMinimumLevel(LogLevel.Debug);
         });
 
-        services.AddTrax.CoreEffects(options =>
+        services.AddTraxEffects(options =>
         {
             options.AddInMemoryEffect();
             options.AddJsonEffect();

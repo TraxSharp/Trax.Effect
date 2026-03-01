@@ -5,9 +5,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 
-namespace Trax.Effect.Configuration.Trax.CoreEffectBuilder;
+namespace Trax.Effect.Configuration.TraxEffectBuilder;
 
-public class Trax.CoreEffectConfigurationBuilder(
+public class TraxEffectConfigurationBuilder(
     IServiceCollection serviceCollection,
     IEffectRegistry? effectRegistry = null
 )
@@ -23,14 +23,14 @@ public class Trax.CoreEffectConfigurationBuilder(
     public LogLevel LogLevel { get; set; } = LogLevel.Debug;
 
     public JsonSerializerOptions WorkflowParameterJsonSerializerOptions { get; set; } =
-        Trax.CoreJsonSerializationOptions.Default;
+        TraxJsonSerializationOptions.Default;
 
     public JsonSerializerSettings NewtonsoftJsonSerializerSettings { get; set; } =
-        Trax.CoreJsonSerializationOptions.NewtonsoftDefault;
+        TraxJsonSerializationOptions.NewtonsoftDefault;
 
-    protected internal Trax.CoreEffectConfiguration.Trax.CoreEffectConfiguration Build()
+    protected internal TraxEffectConfiguration.TraxEffectConfiguration Build()
     {
-        var configuration = new Trax.CoreEffectConfiguration.Trax.CoreEffectConfiguration
+        var configuration = new TraxEffectConfiguration.TraxEffectConfiguration
         {
             SystemJsonSerializerOptions = WorkflowParameterJsonSerializerOptions,
             NewtonsoftJsonSerializerSettings = NewtonsoftJsonSerializerSettings,
@@ -38,8 +38,8 @@ public class Trax.CoreEffectConfigurationBuilder(
             LogLevel = LogLevel,
         };
 
-        Trax.CoreEffectConfiguration
-            .Trax.CoreEffectConfiguration
+        TraxEffectConfiguration
+            .TraxEffectConfiguration
             .StaticSystemJsonSerializerOptions = WorkflowParameterJsonSerializerOptions;
 
         return configuration;

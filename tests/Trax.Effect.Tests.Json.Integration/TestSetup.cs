@@ -27,7 +27,7 @@ public abstract class TestSetup
             .AddLogging(
                 x => x.AddConsole().AddProvider(arrayProvider).SetMinimumLevel(LogLevel.Debug)
             )
-            .AddTrax.CoreEffects(
+            .AddTraxEffects(
                 options =>
                     options
                         .SetEffectLogLevel(LogLevel.Information)

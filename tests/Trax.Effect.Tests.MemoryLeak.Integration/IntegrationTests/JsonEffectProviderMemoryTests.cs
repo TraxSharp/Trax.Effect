@@ -1,4 +1,4 @@
-using Trax.Effect.Configuration.Trax.CoreEffectConfiguration;
+using Trax.Effect.Configuration.TraxEffectConfiguration;
 using Trax.Effect.Models.Metadata;
 using Trax.Effect.Provider.Json.Services.JsonEffect;
 using Trax.Effect.Tests.MemoryLeak.Integration.TestWorkflows.TestModels;
@@ -19,7 +19,7 @@ namespace Trax.Effect.Tests.MemoryLeak.Integration.IntegrationTests;
 public class JsonEffectProviderMemoryTests
 {
     private ILogger<JsonEffectProvider> _logger;
-    private ITrax.CoreEffectConfiguration _configuration;
+    private ITraxEffectConfiguration _configuration;
 
     [SetUp]
     public void SetUp()
@@ -442,7 +442,7 @@ public class JsonEffectProviderMemoryTests
             );
     }
 
-    private class StubEffectConfiguration : ITrax.CoreEffectConfiguration
+    private class StubEffectConfiguration : ITraxEffectConfiguration
     {
         public System.Text.Json.JsonSerializerOptions SystemJsonSerializerOptions { get; } = new();
         public JsonSerializerSettings NewtonsoftJsonSerializerSettings { get; } = new();

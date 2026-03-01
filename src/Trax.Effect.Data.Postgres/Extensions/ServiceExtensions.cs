@@ -1,4 +1,4 @@
-using Trax.Effect.Configuration.Trax.CoreEffectBuilder;
+using Trax.Effect.Configuration.TraxEffectBuilder;
 using Trax.Effect.Data.Enums;
 using Trax.Effect.Data.Postgres.Services.PostgresContext;
 using Trax.Effect.Data.Postgres.Services.PostgresContextFactory;
@@ -56,13 +56,13 @@ public static class ServiceExtensions
     ///
     /// Example usage:
     /// ```csharp
-    /// services.AddTrax.CoreEffects(options =>
-    ///     options.AddPostgresEffect("Host=localhost;Database=chainsharp;Username=postgres;Password=password")
+    /// services.AddTraxEffects(options =>
+    ///     options.AddPostgresEffect("Host=localhost;Database=trax;Username=postgres;Password=password")
     /// );
     /// ```
     /// </remarks>
-    public static Trax.CoreEffectConfigurationBuilder AddPostgresEffect(
-        this Trax.CoreEffectConfigurationBuilder configurationBuilder,
+    public static TraxEffectConfigurationBuilder AddPostgresEffect(
+        this TraxEffectConfigurationBuilder configurationBuilder,
         string connectionString
     )
     {

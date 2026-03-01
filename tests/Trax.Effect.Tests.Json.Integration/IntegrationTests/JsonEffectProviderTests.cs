@@ -11,7 +11,7 @@ namespace Trax.Effect.Tests.Json.Integration.IntegrationTests;
 public class JsonEffectProviderTests : TestSetup
 {
     public override ServiceProvider ConfigureServices(IServiceCollection services) =>
-        services.AddTransientTrax.CoreRoute<ITestWorkflow, TestWorkflow>().BuildServiceProvider();
+        services.AddTransientTraxRoute<ITestWorkflow, TestWorkflow>().BuildServiceProvider();
 
     [Theory]
     public async Task TestJsonEffect()

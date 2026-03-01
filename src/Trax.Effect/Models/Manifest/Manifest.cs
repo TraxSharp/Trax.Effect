@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
-using Trax.Effect.Configuration.Trax.CoreEffectConfiguration;
+using Trax.Effect.Configuration.TraxEffectConfiguration;
 using Trax.Effect.Enums;
 using Trax.Effect.Models.Manifest.DTOs;
 using Trax.Effect.Utils;
@@ -229,7 +229,7 @@ public class Manifest : IModel
         var json = JsonSerializer.Serialize(
             properties,
             propertiesType,
-            Trax.CoreJsonSerializationOptions.ManifestProperties
+            TraxJsonSerializationOptions.ManifestProperties
         );
 
         var node = JsonNode.Parse(json);
@@ -239,7 +239,7 @@ public class Manifest : IModel
             foreach (var kvp in obj)
                 reordered[kvp.Key] = kvp.Value?.DeepClone();
             Properties = reordered.ToJsonString(
-                Trax.CoreJsonSerializationOptions.ManifestProperties
+                TraxJsonSerializationOptions.ManifestProperties
             );
         }
         else
@@ -266,7 +266,7 @@ public class Manifest : IModel
         return JsonSerializer.Deserialize(
                 Properties,
                 propertyType,
-                Trax.CoreJsonSerializationOptions.ManifestProperties
+                TraxJsonSerializationOptions.ManifestProperties
             )
             ?? throw new Exception(
                 $"Could not deserialize property object ({Properties}) with type ({PropertyType})"
@@ -286,7 +286,7 @@ public class Manifest : IModel
         return JsonSerializer.Deserialize(
                 Properties,
                 PropertyType,
-                Trax.CoreJsonSerializationOptions.ManifestProperties
+                TraxJsonSerializationOptions.ManifestProperties
             )
             ?? throw new Exception(
                 $"Could not deserialize property object ({Properties}) with type ({PropertyType})"
@@ -297,7 +297,7 @@ public class Manifest : IModel
         JsonSerializer.Serialize(
             this,
             GetType(),
-            Trax.CoreEffectConfiguration.StaticSystemJsonSerializerOptions
+            TraxEffectConfiguration.StaticSystemJsonSerializerOptions
         );
 
     #endregion

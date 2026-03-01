@@ -1,4 +1,4 @@
-using Trax.Effect.Configuration.Trax.CoreEffectBuilder;
+using Trax.Effect.Configuration.TraxEffectBuilder;
 using Trax.Effect.Extensions;
 using Trax.Effect.Provider.Json.Services.JsonEffect;
 using Trax.Effect.Provider.Json.Services.JsonEffectFactory;
@@ -41,13 +41,13 @@ public static class ServiceExtensions
     ///
     /// Example usage:
     /// ```csharp
-    /// services.AddTrax.CoreEffects(options =>
+    /// services.AddTraxEffects(options =>
     ///     options.AddJsonEffect()
     /// );
     /// ```
     /// </remarks>
-    public static Trax.CoreEffectConfigurationBuilder AddJsonEffect(
-        this Trax.CoreEffectConfigurationBuilder configurationBuilder
+    public static TraxEffectConfigurationBuilder AddJsonEffect(
+        this TraxEffectConfigurationBuilder configurationBuilder
     )
     {
         configurationBuilder.ServiceCollection.AddTransient<

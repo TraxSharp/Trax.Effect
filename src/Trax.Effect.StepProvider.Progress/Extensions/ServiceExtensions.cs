@@ -1,4 +1,4 @@
-using Trax.Effect.Configuration.Trax.CoreEffectBuilder;
+using Trax.Effect.Configuration.TraxEffectBuilder;
 using Trax.Effect.Extensions;
 using Trax.Effect.StepProvider.Progress.Services.CancellationCheckFactory;
 using Trax.Effect.StepProvider.Progress.Services.CancellationCheckProvider;
@@ -10,8 +10,8 @@ namespace Trax.Effect.StepProvider.Progress.Extensions;
 
 public static class ServiceExtensions
 {
-    public static Trax.CoreEffectConfigurationBuilder AddStepProgress(
-        this Trax.CoreEffectConfigurationBuilder configurationBuilder
+    public static TraxEffectConfigurationBuilder AddStepProgress(
+        this TraxEffectConfigurationBuilder configurationBuilder
     )
     {
         configurationBuilder.ServiceCollection.AddTransient<

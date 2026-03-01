@@ -3,15 +3,15 @@ using Trax.Effect.Utils;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 
-namespace Trax.Effect.Configuration.Trax.CoreEffectConfiguration;
+namespace Trax.Effect.Configuration.TraxEffectConfiguration;
 
-public class Trax.CoreEffectConfiguration : ITrax.CoreEffectConfiguration
+public class TraxEffectConfiguration : ITraxEffectConfiguration
 {
     public JsonSerializerOptions SystemJsonSerializerOptions { get; set; } =
-        Trax.CoreJsonSerializationOptions.Default;
+        TraxJsonSerializationOptions.Default;
 
     public JsonSerializerSettings NewtonsoftJsonSerializerSettings { get; set; } =
-        Trax.CoreJsonSerializationOptions.NewtonsoftDefault;
+        TraxJsonSerializationOptions.NewtonsoftDefault;
 
     public static JsonSerializerOptions StaticSystemJsonSerializerOptions { get; set; } =
         JsonSerializerOptions.Default;

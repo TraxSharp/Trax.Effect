@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Trax.Effect.Configuration.Trax.CoreEffectConfiguration;
+using Trax.Effect.Configuration.TraxEffectConfiguration;
 using Trax.Effect.Models;
 using Microsoft.Extensions.Logging;
 
@@ -26,7 +26,7 @@ namespace Trax.Effect.Provider.Json.Services.JsonEffect;
 /// <param name="configuration">The Trax.Core effect configuration containing JSON serialization options</param>
 public class JsonEffectProvider(
     ILogger<JsonEffectProvider> logger,
-    ITrax.CoreEffectConfiguration configuration
+    ITraxEffectConfiguration configuration
 ) : IJsonEffectProvider
 {
     private readonly Dictionary<IModel, string> _previousStates = new();

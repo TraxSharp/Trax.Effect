@@ -18,7 +18,7 @@ public abstract class TestSetup
     {
         ServiceCollection = new ServiceCollection();
 
-        ServiceCollection.AddTrax.CoreEffects(
+        ServiceCollection.AddTraxEffects(
             options =>
                 options
                     .SetEffectLogLevel(logLevel: Microsoft.Extensions.Logging.LogLevel.Debug)

@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Trax.Effect.Configuration.Trax.CoreEffectConfiguration;
+using Trax.Effect.Configuration.TraxEffectConfiguration;
 using Trax.Effect.Models.Metadata;
 using Trax.Effect.Provider.Json.Services.JsonEffect;
 using Trax.Effect.Provider.Parameter.Configuration;
@@ -26,7 +26,7 @@ public class CrossComponentMemoryTests
 {
     private ServiceProvider _serviceProvider;
     private JsonSerializerOptions _jsonOptions;
-    private ITrax.CoreEffectConfiguration _configuration;
+    private ITraxEffectConfiguration _configuration;
 
     [SetUp]
     public void SetUp()
@@ -44,7 +44,7 @@ public class CrossComponentMemoryTests
         _serviceProvider = services.BuildServiceProvider();
 
         // Create a mock configuration for JsonEffectProvider
-        _configuration = new MockTrax.CoreEffectConfiguration(_jsonOptions);
+        _configuration = new MockTraxEffectConfiguration(_jsonOptions);
     }
 
     [TearDown]
@@ -410,8 +410,8 @@ public class CrossComponentMemoryTests
 }
 
 // Mock configuration for testing
-public class MockTrax.CoreEffectConfiguration(JsonSerializerOptions options)
-    : ITrax.CoreEffectConfiguration
+public class MockTraxEffectConfiguration(JsonSerializerOptions options)
+    : ITraxEffectConfiguration
 {
     public JsonSerializerOptions SystemJsonSerializerOptions { get; } = options;
 
@@ -434,7 +434,7 @@ public class TestParameterEffectProviderFactory(JsonSerializerOptions options)
 
 public class TestJsonEffectProviderFactory(
     JsonSerializerOptions options,
-    ITrax.CoreEffectConfiguration configuration
+    ITraxEffectConfiguration configuration
 ) : IEffectProviderFactory
 {
     private readonly JsonSerializerOptions _options = options;

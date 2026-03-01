@@ -31,14 +31,14 @@ public class JsonEffectToggleTests
             .AddLogging(
                 x => x.AddConsole().AddProvider(arrayProvider).SetMinimumLevel(LogLevel.Debug)
             )
-            .AddTrax.CoreEffects(
+            .AddTraxEffects(
                 options =>
                     options
                         .SetEffectLogLevel(LogLevel.Information)
                         .AddJsonEffect()
                         .AddStepLogger(serializeStepData: true)
             )
-            .AddTransientTrax.CoreRoute<IToggleTestWorkflow, ToggleTestWorkflow>();
+            .AddTransientTraxRoute<IToggleTestWorkflow, ToggleTestWorkflow>();
 
         _serviceProvider = services.BuildServiceProvider();
     }
