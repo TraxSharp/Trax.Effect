@@ -1,6 +1,8 @@
+using System.Reflection;
 using FluentAssertions;
 using NSubstitute;
 using Trax.Effect.Enums;
+using Trax.Effect.Extensions;
 using Trax.Effect.Models.Metadata;
 using Trax.Effect.Models.Metadata.DTOs;
 using Trax.Effect.Services.TrainEventBroadcaster;
@@ -120,9 +122,12 @@ public class BroadcastLifecycleHookTests
     }
 
     [Test]
-    public async Task OnStarted_IncludesExecutorInMessage()
+    public async Task OnStarted_UsesLocalExecutorNotMetadataExecutor()
     {
         var metadata = CreateMetadata();
+        // Simulate a cross-process scenario: metadata was created by a different process
+        typeof(Metadata).GetProperty("Executor")!.SetValue(metadata, "SomeOtherProcess");
+
         TrainLifecycleEventMessage? captured = null;
         await _broadcaster.PublishAsync(
             Arg.Do<TrainLifecycleEventMessage>(m => captured = m),
@@ -132,7 +137,11 @@ public class BroadcastLifecycleHookTests
         await _hook.OnStarted(metadata, CancellationToken.None);
 
         captured.Should().NotBeNull();
-        captured!.Executor.Should().Be(metadata.Executor);
+
+        // Executor should reflect the broadcasting process, not metadata.Executor
+        var expectedExecutor = System.Reflection.Assembly.GetEntryAssembly()?.GetAssemblyProject();
+        captured!.Executor.Should().Be(expectedExecutor);
+        captured.Executor.Should().NotBe("SomeOtherProcess");
     }
 
     [Test]

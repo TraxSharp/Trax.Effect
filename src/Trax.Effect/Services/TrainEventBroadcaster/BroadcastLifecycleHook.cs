@@ -1,4 +1,6 @@
+using System.Reflection;
 using Microsoft.Extensions.Logging;
+using Trax.Effect.Extensions;
 using Trax.Effect.Models.Metadata;
 using Trax.Effect.Services.TrainLifecycleHook;
 
@@ -10,6 +12,10 @@ namespace Trax.Effect.Services.TrainEventBroadcaster;
 /// </summary>
 public class BroadcastLifecycleHook : ITrainLifecycleHook
 {
+    private static readonly string? LocalExecutor = Assembly
+        .GetEntryAssembly()
+        ?.GetAssemblyProject();
+
     private readonly ITrainEventBroadcaster _broadcaster;
     private readonly ILogger<BroadcastLifecycleHook>? _logger;
 
@@ -53,7 +59,7 @@ public class BroadcastLifecycleHook : ITrainLifecycleHook
             FailureStep: metadata.FailureStep,
             FailureReason: metadata.FailureReason,
             EventType: eventType,
-            Executor: metadata.Executor
+            Executor: LocalExecutor
         );
 
         _logger?.LogDebug(
