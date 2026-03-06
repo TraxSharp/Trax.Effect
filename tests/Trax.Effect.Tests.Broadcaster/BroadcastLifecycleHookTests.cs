@@ -233,4 +233,21 @@ public class BroadcastLifecycleHookTests
 
         eventTypes.Should().BeEquivalentTo(["Started", "Completed", "Failed", "Cancelled"]);
     }
+
+    [Test]
+    public async Task OnStateChanged_PublishesMessageWithCorrectEventType()
+    {
+        var metadata = CreateMetadata(TrainState.InProgress);
+
+        await _hook.OnStateChanged(metadata, CancellationToken.None);
+
+        await _broadcaster
+            .Received(1)
+            .PublishAsync(
+                Arg.Is<TrainLifecycleEventMessage>(m =>
+                    m.EventType == "StateChanged" && m.TrainName == "TestTrain"
+                ),
+                Arg.Any<CancellationToken>()
+            );
+    }
 }

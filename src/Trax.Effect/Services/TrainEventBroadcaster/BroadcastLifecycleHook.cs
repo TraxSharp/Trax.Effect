@@ -48,6 +48,11 @@ public class BroadcastLifecycleHook : ITrainLifecycleHook
         await PublishAsync(metadata, "Cancelled", ct);
     }
 
+    public async Task OnStateChanged(Metadata metadata, CancellationToken ct)
+    {
+        await PublishAsync(metadata, "StateChanged", ct);
+    }
+
     private async Task PublishAsync(Metadata metadata, string eventType, CancellationToken ct)
     {
         var message = new TrainLifecycleEventMessage(
