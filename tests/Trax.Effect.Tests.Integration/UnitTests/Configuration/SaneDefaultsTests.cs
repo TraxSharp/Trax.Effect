@@ -288,7 +288,7 @@ public class SaneDefaultsTests
         services.AddLogging();
 
         var connectionString =
-            "Host=localhost;Port=5432;Database=trax;Username=trax;Password=trax123";
+            "Host=localhost;Port=5432;Database=trax_data_tests;Username=trax;Password=trax123";
         Trax.Effect.Configuration.TraxBuilder.TraxBuilderWithEffects? captured = null;
 
         services.AddTrax(trax =>
@@ -323,7 +323,7 @@ public class SaneDefaultsTests
         services.AddLogging();
 
         var connectionString =
-            "Host=localhost;Port=5432;Database=trax;Username=trax;Password=trax123";
+            "Host=localhost;Port=5432;Database=trax_data_tests;Username=trax;Password=trax123";
         Trax.Effect.Configuration.TraxBuilder.TraxBuilderWithEffects? captured = null;
 
         services.AddTrax(trax =>
