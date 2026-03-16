@@ -58,4 +58,11 @@ public class TraxQueryModelAttribute : Attribute
     /// only the columns requested by the client are selected from the database.
     /// </summary>
     public bool Projection { get; init; } = true;
+
+    /// <summary>
+    /// Groups this field under a sub-namespace in the GraphQL schema.
+    /// When set, the field appears under <c>discover { namespace { field } }</c>
+    /// instead of directly under <c>discover { field }</c>.
+    /// </summary>
+    public string? Namespace { get; init; }
 }
