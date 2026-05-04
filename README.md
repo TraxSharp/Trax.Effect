@@ -2,7 +2,7 @@
 
 [![NuGet Version](https://img.shields.io/nuget/v/Trax.Effect)](https://www.nuget.org/packages/Trax.Effect/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Coverage](https://img.shields.io/badge/coverage-84.8%25-green?logo=codecov&logoColor=white)](#)
+[![codecov](https://codecov.io/gh/TraxSharp/Trax.Effect/branch/main/graph/badge.svg)](https://codecov.io/gh/TraxSharp/Trax.Effect)
 
 Effect system for [Trax.Core](https://www.nuget.org/packages/Trax.Core/). Upgrades a bare locomotive into a full commercial train service with journey logging, station services, and dependency injection.
 
