@@ -168,7 +168,7 @@ public class ManifestTests
         var s = m.ToString();
 
         s.Should().NotBeNullOrEmpty();
-        s.Should().Contain("Name");
+        s.Should().Contain("name");
     }
 
     #endregion
