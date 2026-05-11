@@ -102,8 +102,8 @@ public class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDispo
         // when the host shuts down and the connection drops first).
         // CloseAsync on an already-disposed channel/connection throws
         // ObjectDisposedException. Disposal must be idempotent, so we
-        // swallow that specific exception while still letting any other
-        // failure propagate.
+        // swallow that specific exception. Dispose() itself is idempotent
+        // by IDisposable contract — no try/catch needed around it.
         if (_channel is not null)
         {
             try
@@ -111,11 +111,7 @@ public class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDispo
                 await _channel.CloseAsync();
             }
             catch (ObjectDisposedException) { }
-            try
-            {
-                _channel.Dispose();
-            }
-            catch (ObjectDisposedException) { }
+            _channel.Dispose();
         }
 
         if (_connection is not null)
@@ -125,11 +121,7 @@ public class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDispo
                 await _connection.CloseAsync();
             }
             catch (ObjectDisposedException) { }
-            try
-            {
-                _connection.Dispose();
-            }
-            catch (ObjectDisposedException) { }
+            _connection.Dispose();
         }
 
         _connectionLock.Dispose();
