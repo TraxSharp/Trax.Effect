@@ -97,16 +97,39 @@ public class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDispo
 
     public async ValueTask DisposeAsync()
     {
+        // RabbitMQ.Client's AutorecoveringChannel/Connection can dispose
+        // themselves on connection loss before this method runs (e.g.
+        // when the host shuts down and the connection drops first).
+        // CloseAsync on an already-disposed channel/connection throws
+        // ObjectDisposedException. Disposal must be idempotent, so we
+        // swallow that specific exception while still letting any other
+        // failure propagate.
         if (_channel is not null)
         {
-            await _channel.CloseAsync();
-            _channel.Dispose();
+            try
+            {
+                await _channel.CloseAsync();
+            }
+            catch (ObjectDisposedException) { }
+            try
+            {
+                _channel.Dispose();
+            }
+            catch (ObjectDisposedException) { }
         }
 
         if (_connection is not null)
         {
-            await _connection.CloseAsync();
-            _connection.Dispose();
+            try
+            {
+                await _connection.CloseAsync();
+            }
+            catch (ObjectDisposedException) { }
+            try
+            {
+                _connection.Dispose();
+            }
+            catch (ObjectDisposedException) { }
         }
 
         _connectionLock.Dispose();
