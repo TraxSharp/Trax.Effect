@@ -58,6 +58,20 @@ public class SignalRSinkOptionsTests
     }
 
     [Test]
+    public void OnlyForEvents_NullArray_Throws()
+    {
+        var act = () => NewOptions().OnlyForEvents((string[])null!);
+        act.Should().Throw<ArgumentException>().WithMessage("*OnlyForEvents*at least one*");
+    }
+
+    [Test]
+    public void OnlyForTrains_NullTypeEntry_Throws()
+    {
+        var act = () => NewOptions().OnlyForTrains(typeof(ICheckGeocodeDriftTrain), null!);
+        act.Should().Throw<ArgumentException>().WithMessage("*does not accept null*");
+    }
+
+    [Test]
     public void OnlyForEvents_NullOrWhitespace_Throws()
     {
         var act1 = () => NewOptions().OnlyForEvents("Completed", "");

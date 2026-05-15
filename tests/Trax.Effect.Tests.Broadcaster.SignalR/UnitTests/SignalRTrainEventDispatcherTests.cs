@@ -207,6 +207,139 @@ public class SignalRTrainEventDispatcherTests
             );
     }
 
+    private static Effect.Models.Metadata.Metadata Metadata(
+        string externalId = "x",
+        string name = "T.IT",
+        DateTime? endTime = null
+    ) =>
+        new()
+        {
+            ExternalId = externalId,
+            Name = name,
+            TrainState = Effect.Enums.TrainState.Completed,
+            StartTime = new DateTime(2026, 5, 15, 0, 0, 0, DateTimeKind.Utc),
+            EndTime = endTime,
+        };
+
+    [TestCase("Started")]
+    [TestCase("Completed")]
+    [TestCase("Failed")]
+    [TestCase("Cancelled")]
+    [TestCase("StateChanged")]
+    public async Task LifecycleMethod_BuildsMessageWithMatchingEventType_AndSendsToHub(
+        string eventType
+    )
+    {
+        var d = Create(NewOptions().Build());
+        var metadata = Metadata(externalId: $"life-{eventType}");
+
+        switch (eventType)
+        {
+            case "Started":
+                await d.OnStarted(metadata, CancellationToken.None);
+                break;
+            case "Completed":
+                await d.OnCompleted(metadata, CancellationToken.None);
+                break;
+            case "Failed":
+                await d.OnFailed(metadata, new Exception("test"), CancellationToken.None);
+                break;
+            case "Cancelled":
+                await d.OnCancelled(metadata, CancellationToken.None);
+                break;
+            case "StateChanged":
+                await d.OnStateChanged(metadata, CancellationToken.None);
+                break;
+        }
+
+        await _client
+            .Received(1)
+            .TrainEvent(
+                Arg.Is<object>(o =>
+                    o is TraxClientEvent
+                    && ((TraxClientEvent)o).EventType == eventType
+                    && ((TraxClientEvent)o).ExternalId == $"life-{eventType}"
+                )
+            );
+    }
+
+    [Test]
+    public async Task LifecycleMethod_RespectsFilter_NonMatchingEventTypeNotSent()
+    {
+        var d = Create(NewOptions().OnlyForEvents("Completed").Build());
+        var metadata = Metadata();
+
+        await d.OnStarted(metadata, CancellationToken.None);
+        await d.OnFailed(metadata, new Exception("x"), CancellationToken.None);
+        await d.OnCancelled(metadata, CancellationToken.None);
+        await d.OnCompleted(metadata, CancellationToken.None);
+
+        // Only the Completed call should reach the hub.
+        await _client.Received(1).TrainEvent(Arg.Any<object>());
+        await _client
+            .Received(1)
+            .TrainEvent(
+                Arg.Is<object>(o =>
+                    o is TraxClientEvent && ((TraxClientEvent)o).EventType == "Completed"
+                )
+            );
+    }
+
+    [Test]
+    public async Task BuildMessage_EndTimeSet_PayloadTimestampMatchesEndTime()
+    {
+        var endTime = new DateTime(2026, 5, 15, 12, 34, 56, DateTimeKind.Utc);
+        var d = Create(NewOptions().Build());
+        TraxClientEvent? captured = null;
+        await _client.TrainEvent(
+            Arg.Do<object>(o =>
+            {
+                if (o is TraxClientEvent e)
+                    captured = e;
+            })
+        );
+
+        await d.OnCompleted(Metadata(endTime: endTime), CancellationToken.None);
+
+        captured.Should().NotBeNull();
+        captured!.Timestamp.Should().Be(endTime);
+    }
+
+    [Test]
+    public async Task BuildMessage_EndTimeNull_PayloadTimestampUsesNowFallback()
+    {
+        var before = DateTime.UtcNow.AddSeconds(-1);
+        var d = Create(NewOptions().Build());
+        TraxClientEvent? captured = null;
+        await _client.TrainEvent(
+            Arg.Do<object>(o =>
+            {
+                if (o is TraxClientEvent e)
+                    captured = e;
+            })
+        );
+
+        await d.OnCompleted(Metadata(endTime: null), CancellationToken.None);
+
+        captured.Should().NotBeNull();
+        captured!.Timestamp.Should().BeOnOrAfter(before);
+        captured.Timestamp.Should().BeOnOrBefore(DateTime.UtcNow.AddSeconds(1));
+    }
+
+    [Test]
+    public async Task DispatchAsync_NullLogger_HubSendThrows_StillDoesNotThrow()
+    {
+        _client.TrainEvent(Arg.Any<object>()).Throws(new InvalidOperationException("boom"));
+        var dispatcher = new SignalRTrainEventDispatcher(_hub, NewOptions().Build(), logger: null);
+
+        Func<Task> act = () => dispatcher.HandleAsync(Message(), CancellationToken.None);
+
+        // The dispatcher swallows the exception via the null-conditional logger call;
+        // no log can be observed, but the contract is "never throw out of the pipeline".
+        await act.Should().NotThrowAsync();
+        await _client.Received(1).TrainEvent(Arg.Any<object>());
+    }
+
     [Test]
     public async Task OnCompleted_HubSendThrows_DoesNotThrow()
     {

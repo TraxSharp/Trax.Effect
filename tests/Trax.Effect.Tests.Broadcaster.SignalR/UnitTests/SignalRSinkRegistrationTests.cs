@@ -146,6 +146,58 @@ public class SignalRSinkRegistrationTests
     }
 
     [Test]
+    public async Task StandaloneSignalR_NullBroadcaster_PublishAsyncIsCalled_NoThrow()
+    {
+        // BroadcastLifecycleHook calls ITrainEventBroadcaster.PublishAsync on every
+        // local lifecycle event. In a SignalR-only topology the resolved broadcaster
+        // is the no-op; that path must complete successfully (no throw, no hang).
+        await using var sp = BuildProvider();
+        var broadcaster = sp.GetRequiredService<ITrainEventBroadcaster>();
+
+        var message = new TrainLifecycleEventMessage(
+            MetadataId: 1,
+            ExternalId: "x",
+            TrainName: "T.IT",
+            TrainState: "Completed",
+            Timestamp: DateTime.UtcNow,
+            FailureJunction: null,
+            FailureReason: null,
+            EventType: "Completed",
+            Executor: null,
+            Output: null
+        );
+
+        Func<Task> act = () => broadcaster.PublishAsync(message, CancellationToken.None);
+
+        await act.Should().NotThrowAsync();
+    }
+
+    [Test]
+    public async Task StandaloneSignalR_NullReceiver_StartStopDispose_NoThrow()
+    {
+        // TrainEventReceiverService calls StartAsync on the receiver. In a SignalR-only
+        // topology, the resolved receiver is the no-op; Start/Stop/Dispose must all
+        // complete without throwing.
+        await using var sp = BuildProvider();
+        var receiver = sp.GetRequiredService<ITrainEventReceiver>();
+        var handlerCalled = false;
+        Func<TrainLifecycleEventMessage, CancellationToken, Task> handler = (_, _) =>
+        {
+            handlerCalled = true;
+            return Task.CompletedTask;
+        };
+
+        await receiver.StartAsync(handler, CancellationToken.None);
+        await receiver.StopAsync(CancellationToken.None);
+        Func<Task> dispose = async () => await receiver.DisposeAsync();
+        await dispose.Should().NotThrowAsync();
+
+        // The no-op receiver must not invoke the supplied handler — there is no transport
+        // delivering events, so any call would represent a phantom-event regression.
+        handlerCalled.Should().BeFalse();
+    }
+
+    [Test]
     public async Task UseSignalRHub_ChainsWithUseRabbitMq_BothTransportsRegistered()
     {
         var services = new ServiceCollection();
