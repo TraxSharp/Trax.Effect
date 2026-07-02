@@ -25,7 +25,7 @@
     <!-- third-party : plain exact -->
     <PackageVersion Include="BenchmarkDotNet" Version="0.14.0" />
     <PackageVersion Include="coverlet.collector" Version="6.0.4" />
-    <PackageVersion Include="dbup-core" Version="5.0.87" />
+    <PackageVersion Include="dbup-core" Version="6.1.1" />
     <PackageVersion Include="DotNet.ReproducibleBuilds" Version="2.0.2" />
     <PackageVersion Include="dbup-postgresql" Version="5.0.40" />
     <PackageVersion Include="dbup-sqlite" Version="5.0.40" />
