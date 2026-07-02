@@ -326,15 +326,18 @@
           "Microsoft.EntityFrameworkCore.Relational": "[10.0.3, )",
           "Microsoft.EntityFrameworkCore.Sqlite": "[10.0.3, )",
           "Trax.Effect.Data": "[1.99.99, )",
-          "dbup-core": "[5.0.87, )",
+          "dbup-core": "[6.1.1, )",
           "dbup-sqlite": "[5.0.40, )"
         }
       },
       "dbup-core": {
         "type": "CentralTransitive",
-        "requested": "[5.0.87, )",
-        "resolved": "5.0.87",
-        "contentHash": "KhcbHJfaxNA4yRwFGGewD4znkOweyPLIbSQnUU2tMjLDkEWiBNFKlojhk46J7qsyKssk/RSzC0s/Rohjp4Y9xA=="
+        "requested": "[6.1.1, )",
+        "resolved": "6.1.1",
+        "contentHash": "kgpuyJVEFJHoIj/slnc994Go88aoeZqNDfGHDBr4sh7CsEWwJhOTCt/FJqO4ziUImL5L0NEY0kxxOiNgPKI2Fw==",
+        "dependencies": {
+          "Microsoft.Extensions.Logging.Abstractions": "8.0.0"
+        }
       },
       "dbup-sqlite": {
         "type": "CentralTransitive",
