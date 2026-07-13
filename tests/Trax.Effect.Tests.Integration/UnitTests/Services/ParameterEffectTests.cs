@@ -323,6 +323,43 @@ public class ParameterEffectTests
         config.Invoking(c => c.ExcludeOutput("")).Should().Throw<ArgumentException>();
     }
 
+    [Test]
+    public void ExcludeOutput_TypeWithoutFullName_Throws()
+    {
+        // Open generic parameters have no FullName; excluding one is a usage error, and the
+        // guard turns it into a clear ArgumentException instead of a later null store.
+        var noFullName = typeof(List<>).GetGenericArguments()[0];
+        noFullName.FullName.Should().BeNull();
+
+        var config = new ParameterEffectConfiguration();
+
+        config.Invoking(c => c.ExcludeOutput(noFullName)).Should().Throw<ArgumentException>();
+    }
+
+    [Test]
+    public async Task Track_NullName_WithPredicate_PassesEmptyStringAndStillSaves()
+    {
+        // Metadata.Name is non-null in practice, but the opt-out logic guards against null so a
+        // missing name never NREs: the exclusion scan is skipped and the predicate sees "".
+        string? seen = "unset";
+        var config = new ParameterEffectConfiguration
+        {
+            ShouldSaveOutputs = name =>
+            {
+                seen = name;
+                return true;
+            },
+        };
+        var effect = NewEffect(config);
+        var meta = NewMetadata(output: new { X = 1 });
+        meta.Name = null!;
+
+        await effect.Track(meta);
+
+        seen.Should().Be(string.Empty);
+        meta.Output.Should().Contain("X");
+    }
+
     #endregion
 
     #region Size ceiling (Feature B)

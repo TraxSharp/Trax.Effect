@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Text;
 using System.Text.Json;
@@ -223,6 +224,12 @@ public class ParameterEffect(
     /// A write-only stream that forwards to an inner stream until a byte ceiling is crossed,
     /// then throws <see cref="PayloadTooLargeException"/>. Used to bound serialization work.
     /// </summary>
+    /// <remarks>
+    /// The ceiling behavior is validated behaviorally through <see cref="SerializeBounded"/> (see the
+    /// over-cap and unbounded-output tests). The rest is <see cref="Stream"/> contract plumbing the
+    /// serializer never calls on a write-only stream, so it is excluded from coverage.
+    /// </remarks>
+    [ExcludeFromCodeCoverage]
     private sealed class ByteCeilingStream(Stream inner, int maxBytes) : Stream
     {
         private long _written;
