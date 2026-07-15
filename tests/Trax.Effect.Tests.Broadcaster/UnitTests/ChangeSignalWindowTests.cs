@@ -127,4 +127,108 @@ public class ChangeSignalWindowTests
             await coalescer.StopAsync(CancellationToken.None);
         }
     }
+
+    [Test]
+    public async Task Complete_WhileParkedInWindow_FlushesBufferedDomains_WithoutAdvancingTheClock()
+    {
+        // Graceful-shutdown path: when the channel completes while the coalescer is parked on an open
+        // window, it flushes what it already drained instead of discarding it or waiting for the window
+        // to close. The clock is never advanced, so only the completion can trigger the flush here.
+        var fakeTime = new FakeTimeProvider();
+        var options = new ChangeSignalOptions { CoalesceWindow = Window };
+        var sink = new CapturingSink();
+
+        var services = new ServiceCollection().AddLogging();
+        services.AddSingleton<IChangeSignalSink>(sink);
+        await using var provider = services.BuildServiceProvider();
+
+        var signal = new TraxChangeSignal(options);
+        var coalescer = new ChangeSignalCoalescer(
+            signal,
+            provider,
+            options,
+            fakeTime,
+            provider.GetService<ILogger<ChangeSignalCoalescer>>()
+        );
+
+        await coalescer.StartAsync(CancellationToken.None);
+        try
+        {
+            signal.Notify(ChangeDomain.WorkQueue);
+            signal.Notify(ChangeDomain.DeadLetter);
+
+            // Drained into the open window; parked on the timer that we never fire.
+            (await WaitUntilAsync(() => signal.Reader.Count == 0, TimeSpan.FromSeconds(10)))
+                .Should()
+                .BeTrue();
+            sink.Count.Should().Be(0, "the window has not elapsed and the clock never moves");
+
+            signal.Complete();
+
+            (await WaitUntilAsync(() => sink.Count == 1, TimeSpan.FromSeconds(10)))
+                .Should()
+                .BeTrue("completing the channel drains the open window at once");
+            sink.Flushes[0]
+                .Should()
+                .BeEquivalentTo(new[] { ChangeDomain.WorkQueue, ChangeDomain.DeadLetter });
+        }
+        finally
+        {
+            await coalescer.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Test]
+    public async Task SignalArrivingMidWindow_JoinsTheOpenWindow_NotANewOne()
+    {
+        // A signal that lands after the coalescer has parked on the window timer (but before the window
+        // closes) must be drained into the already-open window and flushed with it, not deferred to a
+        // second flush. This is the mid-window second-drain path.
+        var fakeTime = new FakeTimeProvider();
+        var options = new ChangeSignalOptions { CoalesceWindow = Window };
+        var sink = new CapturingSink();
+
+        var services = new ServiceCollection().AddLogging();
+        services.AddSingleton<IChangeSignalSink>(sink);
+        await using var provider = services.BuildServiceProvider();
+
+        var signal = new TraxChangeSignal(options);
+        var coalescer = new ChangeSignalCoalescer(
+            signal,
+            provider,
+            options,
+            fakeTime,
+            provider.GetService<ILogger<ChangeSignalCoalescer>>()
+        );
+
+        await coalescer.StartAsync(CancellationToken.None);
+        try
+        {
+            signal.Notify(ChangeDomain.WorkQueue);
+            // First arrival drained; coalescer is now parked on the window timer.
+            (await WaitUntilAsync(() => signal.Reader.Count == 0, TimeSpan.FromSeconds(10)))
+                .Should()
+                .BeTrue();
+
+            // Second arrival lands mid-window. The clock has not moved, so it can only be picked up by
+            // the open window's drain, not by a window expiry.
+            signal.Notify(ChangeDomain.DeadLetter);
+            (await WaitUntilAsync(() => signal.Reader.Count == 0, TimeSpan.FromSeconds(10)))
+                .Should()
+                .BeTrue();
+            sink.Count.Should().Be(0, "nothing flushes until the single open window closes");
+
+            await AdvanceUntilFlushAsync(fakeTime, sink, targetCount: 1);
+            sink.Flushes[0]
+                .Should()
+                .BeEquivalentTo(
+                    new[] { ChangeDomain.WorkQueue, ChangeDomain.DeadLetter },
+                    "both arrivals coalesce into the one window"
+                );
+        }
+        finally
+        {
+            await coalescer.StopAsync(CancellationToken.None);
+        }
+    }
 }

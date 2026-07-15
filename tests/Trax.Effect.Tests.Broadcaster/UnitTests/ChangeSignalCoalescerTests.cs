@@ -353,4 +353,158 @@ public class ChangeSignalCoalescerTests
         signal.TotalDropped.Should().Be(3, "two fit in the buffer and three are dropped");
         signal.Dispose();
     }
+
+    [Test]
+    public async Task DrainLoop_WhenSinkResolutionThrows_LogsAndKeepsRunning()
+    {
+        // A throw from outside the per-sink guard (here, resolving the sink itself) must not kill the
+        // background loop. The top-level catch in ExecuteAsync logs it and the loop recovers on the
+        // next signal. Without that catch the service would die silently on the first hiccup and every
+        // later change would be missed.
+        var logger = new RecordingLogger<ChangeSignalCoalescer>();
+        var realSink = new CapturingSink();
+        var shouldThrow = true;
+
+        var services = new ServiceCollection();
+        // Transient so the factory runs on every resolution (no singleton caching of the outcome).
+        services.AddTransient<IChangeSignalSink>(_ =>
+            Volatile.Read(ref shouldThrow)
+                ? throw new InvalidOperationException("resolve boom")
+                : realSink
+        );
+        await using var provider = services.BuildServiceProvider();
+
+        var options = FastOptions();
+        var signal = new TraxChangeSignal(options);
+        var coalescer = new ChangeSignalCoalescer(
+            signal,
+            provider,
+            options,
+            TimeProvider.System,
+            logger
+        );
+
+        await coalescer.StartAsync(CancellationToken.None);
+        try
+        {
+            signal.Notify(ChangeDomain.WorkQueue);
+            (await WaitUntilAsync(() => logger.ErrorCount > 0, FlushTimeout))
+                .Should()
+                .BeTrue("an unexpected drain error must be logged, not fatal to the loop");
+
+            // The loop is still alive: once resolution recovers, a later signal flushes normally.
+            Volatile.Write(ref shouldThrow, false);
+            signal.Notify(ChangeDomain.Manifest);
+            (await WaitUntilAsync(() => realSink.Count == 1, FlushTimeout))
+                .Should()
+                .BeTrue("the coalescer keeps processing after a recovered error");
+            realSink.Flushes[0].Should().ContainSingle().Which.Should().Be(ChangeDomain.Manifest);
+        }
+        finally
+        {
+            await coalescer.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Test]
+    public async Task Complete_DrainsBufferedSignals_ThenCompletesReader()
+    {
+        // Shutdown contract: Complete() lets already-buffered signals drain, then reports completion
+        // so the coalescer's WaitToReadAsync returns false and the loop can exit.
+        var signal = new TraxChangeSignal(new ChangeSignalOptions { ChannelCapacity = 8 });
+        signal.Notify(ChangeDomain.WorkQueue);
+        signal.Notify(ChangeDomain.Manifest);
+
+        signal.Complete();
+
+        var drained = new List<ChangeDomain>();
+        while (signal.Reader.TryRead(out var domain))
+            drained.Add(domain);
+        drained.Should().Equal(ChangeDomain.WorkQueue, ChangeDomain.Manifest);
+
+        (await signal.Reader.WaitToReadAsync())
+            .Should()
+            .BeFalse("Complete signals that no more entries will arrive");
+        signal.Reader.Completion.IsCompleted.Should().BeTrue();
+        signal.Dispose();
+    }
+
+    [Test]
+    public async Task Cancellation_DuringSinkFlush_PropagatesAsCancellation_AndStopsCleanly()
+    {
+        // If the coalescer is stopped while a sink is mid-flush, the cancellation must surface as
+        // cancellation rather than be swallowed by the generic sink guard, so StopAsync unwinds the
+        // loop cleanly instead of hanging on the blocked sink.
+        var flushEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        var blockingSink = new BlockingSink(flushEntered);
+
+        var services = new ServiceCollection().AddLogging();
+        services.AddSingleton<IChangeSignalSink>(blockingSink);
+        await using var provider = services.BuildServiceProvider();
+
+        var options = FastOptions();
+        var signal = new TraxChangeSignal(options);
+        var coalescer = new ChangeSignalCoalescer(
+            signal,
+            provider,
+            options,
+            TimeProvider.System,
+            provider.GetService<ILogger<ChangeSignalCoalescer>>()
+        );
+
+        await coalescer.StartAsync(CancellationToken.None);
+        signal.Notify(ChangeDomain.WorkQueue);
+
+        // Wait until the sink is actually inside FlushAsync (blocked on the token) before stopping.
+        var entered = await Task.WhenAny(flushEntered.Task, Task.Delay(FlushTimeout));
+        entered.Should().Be(flushEntered.Task, "the sink should reach its flush before we stop");
+
+        // StopAsync cancels the stopping token; the sink's wait throws, the flush rethrows the
+        // cancellation, and the loop breaks. This must complete rather than hang or throw.
+        var stop = coalescer.StopAsync(CancellationToken.None);
+        var finished = await Task.WhenAny(stop, Task.Delay(FlushTimeout));
+        finished
+            .Should()
+            .Be(stop, "StopAsync must unwind cleanly when a sink is cancelled mid-flush");
+        await stop; // observe no exception
+    }
+
+    private sealed class BlockingSink(TaskCompletionSource entered) : IChangeSignalSink
+    {
+        public async Task FlushAsync(
+            IReadOnlyCollection<ChangeDomain> domains,
+            CancellationToken ct
+        )
+        {
+            entered.TrySetResult();
+            // Blocks until the coalescer's stopping token cancels, then throws an
+            // OperationCanceledException with ct.IsCancellationRequested == true.
+            await Task.Delay(Timeout.Infinite, ct);
+        }
+    }
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        private int _errorCount;
+        public int ErrorCount => Volatile.Read(ref _errorCount);
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter
+        )
+        {
+            if (logLevel == LogLevel.Error)
+                Interlocked.Increment(ref _errorCount);
+        }
+    }
 }
