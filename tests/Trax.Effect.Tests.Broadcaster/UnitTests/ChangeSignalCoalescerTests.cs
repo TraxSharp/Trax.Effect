@@ -458,12 +458,15 @@ public class ChangeSignalCoalescerTests
         signal.Notify(ChangeDomain.WorkQueue);
 
         // Wait until the sink is actually inside FlushAsync (blocked on the token) before stopping.
+        // allowed-delay: fail-safe ceiling, not a fixed wait — WhenAny returns the instant the sink
+        // enters its flush; the delay only bounds a hang so a regression fails fast instead of hanging.
         var entered = await Task.WhenAny(flushEntered.Task, Task.Delay(FlushTimeout));
         entered.Should().Be(flushEntered.Task, "the sink should reach its flush before we stop");
 
         // StopAsync cancels the stopping token; the sink's wait throws, the flush rethrows the
         // cancellation, and the loop breaks. This must complete rather than hang or throw.
         var stop = coalescer.StopAsync(CancellationToken.None);
+        // allowed-delay: fail-safe ceiling on StopAsync; WhenAny returns the moment it completes.
         var finished = await Task.WhenAny(stop, Task.Delay(FlushTimeout));
         finished
             .Should()
@@ -479,8 +482,8 @@ public class ChangeSignalCoalescerTests
         )
         {
             entered.TrySetResult();
-            // Blocks until the coalescer's stopping token cancels, then throws an
-            // OperationCanceledException with ct.IsCancellationRequested == true.
+            // allowed-delay: blocks until the coalescer's stopping token cancels (the mechanism under
+            // test), then throws OperationCanceledException with ct.IsCancellationRequested == true.
             await Task.Delay(Timeout.Infinite, ct);
         }
     }
