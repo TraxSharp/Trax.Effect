@@ -47,6 +47,34 @@ public abstract record AdvanceOutcome
 }
 
 /// <summary>
+/// The machine-agnostic face of <see cref="SnapshotDraftService{TState,TTrigger}"/>. Its methods take and
+/// return only strings/JSON and the non-generic result unions, so a registry can hold one of these per
+/// machine keyed by name and a single generic mutation can serve every machine.
+/// </summary>
+public interface ISnapshotDraftService
+{
+    Task<LoadResult> Load(string userKey, Guid id, CancellationToken cancellationToken = default);
+
+    Task<AutosaveResult> Autosave(
+        string userKey,
+        Guid id,
+        string snapshotJson,
+        CancellationToken cancellationToken = default
+    );
+
+    Task<AdvanceOutcome> Advance(
+        string userKey,
+        Guid id,
+        string trigger,
+        JsonNode? input = null,
+        string? requestId = null,
+        CancellationToken cancellationToken = default
+    );
+
+    string Serialize(Snapshot snapshot);
+}
+
+/// <summary>
 /// The FE-drives / BE-validates operations over a persisted, user-scoped snapshot, built on the total
 /// <see cref="SnapshotMachine{TState,TTrigger}"/> engine and an <see cref="ISnapshotStore"/>. Every
 /// method is total for expected outcomes — including concurrency conflicts, which come back as a typed
@@ -58,7 +86,7 @@ public sealed class SnapshotDraftService<TState, TTrigger>(
     IReadOnlyCollection<TState>? committedStates = null,
     IEffectClaimStore? effectClaims = null,
     Func<string, Guid, IEnumerable<string>>? effectKeysOnReset = null
-)
+) : ISnapshotDraftService
     where TState : struct, Enum
     where TTrigger : struct, Enum
 {
@@ -80,7 +108,11 @@ public sealed class SnapshotDraftService<TState, TTrigger>(
     // On returning to the initial state (a reset / "start over"), release any effect claims for this
     // instance so the NEXT logical effect can claim a clean key — otherwise the next effect would replay
     // the previous one's receipt and never run. Idempotent; a no-op when no effects are wired.
-    private async Task ReleaseEffectClaims(string userKey, Guid id, CancellationToken cancellationToken)
+    private async Task ReleaseEffectClaims(
+        string userKey,
+        Guid id,
+        CancellationToken cancellationToken
+    )
     {
         if (effectClaims is null || effectKeysOnReset is null)
             return;
@@ -88,7 +120,13 @@ public sealed class SnapshotDraftService<TState, TTrigger>(
             await effectClaims.Release(key, cancellationToken);
     }
 
-    private async Task<AutosaveResult> Persisted(bool ok, string userKey, Guid id, Snapshot snapshot, CancellationToken cancellationToken)
+    private async Task<AutosaveResult> Persisted(
+        bool ok,
+        string userKey,
+        Guid id,
+        Snapshot snapshot,
+        CancellationToken cancellationToken
+    )
     {
         if (!ok)
             return new AutosaveResult.Conflict();
@@ -100,7 +138,11 @@ public sealed class SnapshotDraftService<TState, TTrigger>(
     public string Serialize(Snapshot snapshot) => machine.Serialize(snapshot);
 
     /// <summary>Read the caller's draft, validating the stored data on the way out.</summary>
-    public async Task<LoadResult> Load(string userKey, Guid id, CancellationToken cancellationToken = default)
+    public async Task<LoadResult> Load(
+        string userKey,
+        Guid id,
+        CancellationToken cancellationToken = default
+    )
     {
         var stored = await store.Get(userKey, id, cancellationToken);
         if (stored is null)
@@ -110,16 +152,27 @@ public sealed class SnapshotDraftService<TState, TTrigger>(
         {
             RehydrationResult.Ok ok => new LoadResult.Loaded(ok.Snapshot),
             RehydrationResult.Error error => new LoadResult.Invalid(error.Code, error.Message),
-            _ => new LoadResult.Invalid(RehydrationErrorCodes.Malformed, "Unknown rehydration result."),
+            _ => new LoadResult.Invalid(
+                RehydrationErrorCodes.Malformed,
+                "Unknown rehydration result."
+            ),
         };
     }
 
     /// <summary>Soft path: validate a client-provided snapshot and persist it. Invalid data is never stored.</summary>
-    public async Task<AutosaveResult> Autosave(string userKey, Guid id, string snapshotJson, CancellationToken cancellationToken = default)
+    public async Task<AutosaveResult> Autosave(
+        string userKey,
+        Guid id,
+        string snapshotJson,
+        CancellationToken cancellationToken = default
+    )
     {
         // Bound the payload before any parsing or DB work (DoS guard).
         if (Encoding.UTF8.GetByteCount(snapshotJson) > SnapshotLimits.MaxSnapshotBytes)
-            return new AutosaveResult.Rejected("too-large", $"Snapshot exceeds the {SnapshotLimits.MaxSnapshotBytes}-byte limit.");
+            return new AutosaveResult.Rejected(
+                "too-large",
+                $"Snapshot exceeds the {SnapshotLimits.MaxSnapshotBytes}-byte limit."
+            );
 
         switch (machine.Rehydrate(snapshotJson))
         {
@@ -153,13 +206,23 @@ public sealed class SnapshotDraftService<TState, TTrigger>(
 
                 // Atomic overwrite guarded by the token we just read: a commit that lands between this read
                 // and this write makes the soft save LOSE (Conflict) instead of resurrecting the draft.
-                var wrote = await store.Update(userKey, id, ok.Snapshot, stored.Token, stored.LastRequestId, cancellationToken);
+                var wrote = await store.Update(
+                    userKey,
+                    id,
+                    ok.Snapshot,
+                    stored.Token,
+                    stored.LastRequestId,
+                    cancellationToken
+                );
                 return await Persisted(wrote, userKey, id, ok.Snapshot, cancellationToken);
 
             case RehydrationResult.Error error:
                 return new AutosaveResult.Rejected(error.Code, error.Message);
             default:
-                return new AutosaveResult.Rejected(RehydrationErrorCodes.Malformed, "Unknown rehydration result.");
+                return new AutosaveResult.Rejected(
+                    RehydrationErrorCodes.Malformed,
+                    "Unknown rehydration result."
+                );
         }
     }
 
@@ -197,7 +260,14 @@ public sealed class SnapshotDraftService<TState, TTrigger>(
                     case AdvanceResult.Rejected rejected:
                         return new AdvanceOutcome.Rejected(rejected.Reason, rejected.Detail);
                     case AdvanceResult.Transitioned transitioned:
-                        var updated = await store.Update(userKey, id, transitioned.Snapshot, stored.Token, requestId, cancellationToken);
+                        var updated = await store.Update(
+                            userKey,
+                            id,
+                            transitioned.Snapshot,
+                            stored.Token,
+                            requestId,
+                            cancellationToken
+                        );
                         if (!updated)
                             return new AdvanceOutcome.Conflict();
                         if (transitioned.Snapshot.State == _initialState)
@@ -208,7 +278,10 @@ public sealed class SnapshotDraftService<TState, TTrigger>(
                 }
 
             default:
-                return new AdvanceOutcome.LoadError(RehydrationErrorCodes.Malformed, "Unknown rehydration result.");
+                return new AdvanceOutcome.LoadError(
+                    RehydrationErrorCodes.Malformed,
+                    "Unknown rehydration result."
+                );
         }
     }
 
@@ -216,7 +289,13 @@ public sealed class SnapshotDraftService<TState, TTrigger>(
         machine.Rehydrate(json) switch
         {
             RehydrationResult.Ok ok => new AdvanceOutcome.Advanced(ok.Snapshot),
-            RehydrationResult.Error error => new AdvanceOutcome.LoadError(error.Code, error.Message),
-            _ => new AdvanceOutcome.LoadError(RehydrationErrorCodes.Malformed, "Unknown rehydration result."),
+            RehydrationResult.Error error => new AdvanceOutcome.LoadError(
+                error.Code,
+                error.Message
+            ),
+            _ => new AdvanceOutcome.LoadError(
+                RehydrationErrorCodes.Malformed,
+                "Unknown rehydration result."
+            ),
         };
 }

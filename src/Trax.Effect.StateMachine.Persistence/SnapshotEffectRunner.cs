@@ -15,7 +15,18 @@ namespace Trax.Effect.StateMachine.Persistence;
 /// -&gt; RunOnce(effect) -&gt; Advance(trigger, {receipt}) with idempotency</c>. The effect implementation
 /// and the intent key are supplied by the host; everything else is mechanism.</para>
 /// </summary>
-public sealed class SnapshotEffectRunner<TState, TTrigger>
+/// <summary>The machine-agnostic face of <see cref="SnapshotEffectRunner{TState,TTrigger}"/> (for the registry).</summary>
+public interface ISnapshotEffectRunner
+{
+    Task<AdvanceOutcome> Run(
+        string userKey,
+        Guid id,
+        string requestId,
+        CancellationToken cancellationToken = default
+    );
+}
+
+public sealed class SnapshotEffectRunner<TState, TTrigger> : ISnapshotEffectRunner
     where TState : struct, Enum
     where TTrigger : struct, Enum
 {
@@ -57,7 +68,12 @@ public sealed class SnapshotEffectRunner<TState, TTrigger>
         _lease = lease;
     }
 
-    public async Task<AdvanceOutcome> Run(string userKey, Guid id, string requestId, CancellationToken cancellationToken = default)
+    public async Task<AdvanceOutcome> Run(
+        string userKey,
+        Guid id,
+        string requestId,
+        CancellationToken cancellationToken = default
+    )
     {
         switch (await _drafts.Load(userKey, id, cancellationToken))
         {
@@ -75,7 +91,10 @@ public sealed class SnapshotEffectRunner<TState, TTrigger>
                 // Only the required state may run the effect. Refuse BEFORE the effect, so a wrong-state
                 // request can't trigger a real delivery.
                 if (loaded.Snapshot.State != _fromState)
-                    return new AdvanceOutcome.Rejected("no-transition", $"Only a {_fromState} draft can run this effect.");
+                    return new AdvanceOutcome.Rejected(
+                        "no-transition",
+                        $"Only a {_fromState} draft can run this effect."
+                    );
 
                 // Exactly-once DELIVERY: claim the effect key BEFORE running. Two concurrent runs (or a
                 // crash-retry) run the effect once and replay the receipt.
@@ -96,9 +115,15 @@ public sealed class SnapshotEffectRunner<TState, TTrigger>
                         receipt = already.Receipt;
                         break;
                     case EffectOutcome.InProgress:
-                        return new AdvanceOutcome.Rejected("effect-in-progress", "This effect is already running.");
+                        return new AdvanceOutcome.Rejected(
+                            "effect-in-progress",
+                            "This effect is already running."
+                        );
                     default:
-                        return new AdvanceOutcome.Rejected(RejectionReasons.InternalError, "Unknown effect outcome.");
+                        return new AdvanceOutcome.Rejected(
+                            RejectionReasons.InternalError,
+                            "Unknown effect outcome."
+                        );
                 }
 
                 // Fold the receipt into the terminal snapshot. If a concurrent run already committed this

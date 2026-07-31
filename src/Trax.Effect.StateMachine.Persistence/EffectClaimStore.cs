@@ -24,10 +24,19 @@ public interface IEffectClaimStore
     /// lease has expired. Returns the fence token on a win, or <see cref="ClaimResult.Lost"/> if the key
     /// is actively claimed or already completed.
     /// </summary>
-    Task<ClaimResult> TryClaim(string effectKey, TimeSpan lease, CancellationToken cancellationToken = default);
+    Task<ClaimResult> TryClaim(
+        string effectKey,
+        TimeSpan lease,
+        CancellationToken cancellationToken = default
+    );
 
     /// <summary>Record the effect's result — but only if this caller still holds the claim (CAS on the fence token).</summary>
-    Task<bool> Complete(string effectKey, Guid ownerToken, string receipt, CancellationToken cancellationToken = default);
+    Task<bool> Complete(
+        string effectKey,
+        Guid ownerToken,
+        string receipt,
+        CancellationToken cancellationToken = default
+    );
 
     /// <summary>The stored receipt, or <c>null</c> if the key is unclaimed or claimed-but-in-flight.</summary>
     Task<string?> GetReceipt(string effectKey, CancellationToken cancellationToken = default);
@@ -36,7 +45,11 @@ public interface IEffectClaimStore
     Task Release(string effectKey, CancellationToken cancellationToken = default);
 
     /// <summary>Release a claim only if this caller still owns it and it is in flight (the runner's fail path).</summary>
-    Task<bool> ReleaseOwned(string effectKey, Guid ownerToken, CancellationToken cancellationToken = default);
+    Task<bool> ReleaseOwned(
+        string effectKey,
+        Guid ownerToken,
+        CancellationToken cancellationToken = default
+    );
 
     /// <summary>Sweeper: delete in-flight claims whose lease expired before <paramref name="cutoff"/>. Returns the count.</summary>
     Task<int> ReclaimStale(DateTimeOffset cutoff, CancellationToken cancellationToken = default);
@@ -45,7 +58,11 @@ public interface IEffectClaimStore
 /// <summary>The Postgres-backed <see cref="IEffectClaimStore"/>. The unique PK on <c>effect_key</c> is the lock.</summary>
 public sealed class EfEffectClaimStore(SnapshotDbContext db) : IEffectClaimStore
 {
-    public async Task<ClaimResult> TryClaim(string effectKey, TimeSpan lease, CancellationToken cancellationToken = default)
+    public async Task<ClaimResult> TryClaim(
+        string effectKey,
+        TimeSpan lease,
+        CancellationToken cancellationToken = default
+    )
     {
         var owner = Guid.NewGuid();
         var now = DateTimeOffset.UtcNow;
@@ -73,37 +90,66 @@ public sealed class EfEffectClaimStore(SnapshotDbContext db) : IEffectClaimStore
             // but ONLY if it is an in-flight claim (no receipt) whose lease has expired.
             db.ChangeTracker.Clear();
             var rows = await db
-                .EffectClaims.Where(x => x.EffectKey == effectKey && x.Receipt == null && x.LeaseExpiresAt < now)
+                .EffectClaims.Where(x =>
+                    x.EffectKey == effectKey && x.Receipt == null && x.LeaseExpiresAt < now
+                )
                 .ExecuteUpdateAsync(
-                    s => s.SetProperty(x => x.OwnerToken, owner).SetProperty(x => x.LeaseExpiresAt, expires),
+                    s =>
+                        s.SetProperty(x => x.OwnerToken, owner)
+                            .SetProperty(x => x.LeaseExpiresAt, expires),
                     cancellationToken
                 );
             return rows == 1 ? new ClaimResult.Won(owner) : new ClaimResult.Lost();
         }
     }
 
-    public async Task<bool> Complete(string effectKey, Guid ownerToken, string receipt, CancellationToken cancellationToken = default)
+    public async Task<bool> Complete(
+        string effectKey,
+        Guid ownerToken,
+        string receipt,
+        CancellationToken cancellationToken = default
+    )
     {
         var rows = await db
-            .EffectClaims.Where(x => x.EffectKey == effectKey && x.OwnerToken == ownerToken && x.Receipt == null)
+            .EffectClaims.Where(x =>
+                x.EffectKey == effectKey && x.OwnerToken == ownerToken && x.Receipt == null
+            )
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Receipt, receipt), cancellationToken);
         return rows == 1;
     }
 
-    public async Task<string?> GetReceipt(string effectKey, CancellationToken cancellationToken = default) =>
-        (await db.EffectClaims.AsNoTracking().FirstOrDefaultAsync(x => x.EffectKey == effectKey, cancellationToken))?.Receipt;
+    public async Task<string?> GetReceipt(
+        string effectKey,
+        CancellationToken cancellationToken = default
+    ) =>
+        (
+            await db
+                .EffectClaims.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.EffectKey == effectKey, cancellationToken)
+        )?.Receipt;
 
     public Task Release(string effectKey, CancellationToken cancellationToken = default) =>
         db.EffectClaims.Where(x => x.EffectKey == effectKey).ExecuteDeleteAsync(cancellationToken);
 
-    public async Task<bool> ReleaseOwned(string effectKey, Guid ownerToken, CancellationToken cancellationToken = default)
+    public async Task<bool> ReleaseOwned(
+        string effectKey,
+        Guid ownerToken,
+        CancellationToken cancellationToken = default
+    )
     {
         var rows = await db
-            .EffectClaims.Where(x => x.EffectKey == effectKey && x.OwnerToken == ownerToken && x.Receipt == null)
+            .EffectClaims.Where(x =>
+                x.EffectKey == effectKey && x.OwnerToken == ownerToken && x.Receipt == null
+            )
             .ExecuteDeleteAsync(cancellationToken);
         return rows == 1;
     }
 
-    public Task<int> ReclaimStale(DateTimeOffset cutoff, CancellationToken cancellationToken = default) =>
-        db.EffectClaims.Where(x => x.Receipt == null && x.LeaseExpiresAt < cutoff).ExecuteDeleteAsync(cancellationToken);
+    public Task<int> ReclaimStale(
+        DateTimeOffset cutoff,
+        CancellationToken cancellationToken = default
+    ) =>
+        db
+            .EffectClaims.Where(x => x.Receipt == null && x.LeaseExpiresAt < cutoff)
+            .ExecuteDeleteAsync(cancellationToken);
 }

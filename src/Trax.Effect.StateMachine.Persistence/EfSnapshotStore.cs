@@ -14,7 +14,11 @@ namespace Trax.Effect.StateMachine.Persistence;
 /// </summary>
 public sealed class EfSnapshotStore(SnapshotDbContext db) : ISnapshotStore
 {
-    public async Task<StoredSnapshot?> Get(string userKey, Guid id, CancellationToken cancellationToken = default)
+    public async Task<StoredSnapshot?> Get(
+        string userKey,
+        Guid id,
+        CancellationToken cancellationToken = default
+    )
     {
         var record = await db
             .SnapshotDrafts.AsNoTracking()
@@ -30,12 +34,24 @@ public sealed class EfSnapshotStore(SnapshotDbContext db) : ISnapshotStore
             ["state"] = record.State,
             ["context"] = JsonNode.Parse(record.Context),
         };
-        return new StoredSnapshot(snapshot.ToJsonString(), record.ConcurrencyToken, record.LastRequestId);
+        return new StoredSnapshot(
+            snapshot.ToJsonString(),
+            record.ConcurrencyToken,
+            record.LastRequestId
+        );
     }
 
-    public async Task<bool> Upsert(string userKey, Guid id, Snapshot snapshot, CancellationToken cancellationToken = default)
+    public async Task<bool> Upsert(
+        string userKey,
+        Guid id,
+        Snapshot snapshot,
+        CancellationToken cancellationToken = default
+    )
     {
-        var record = await db.SnapshotDrafts.FirstOrDefaultAsync(x => x.Id == id && x.UserKey == userKey, cancellationToken);
+        var record = await db.SnapshotDrafts.FirstOrDefaultAsync(
+            x => x.Id == id && x.UserKey == userKey,
+            cancellationToken
+        );
         if (record is null)
         {
             record = new SnapshotRecord { Id = id, UserKey = userKey };
@@ -66,7 +82,9 @@ public sealed class EfSnapshotStore(SnapshotDbContext db) : ISnapshotStore
         var now = DateTimeOffset.UtcNow;
 
         var rows = await db
-            .SnapshotDrafts.Where(x => x.Id == id && x.UserKey == userKey && x.ConcurrencyToken == expectedToken)
+            .SnapshotDrafts.Where(x =>
+                x.Id == id && x.UserKey == userKey && x.ConcurrencyToken == expectedToken
+            )
             .ExecuteUpdateAsync(
                 setters =>
                     setters

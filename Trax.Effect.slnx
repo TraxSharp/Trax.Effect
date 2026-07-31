@@ -36,5 +36,6 @@
     <Project Path="tests/Trax.Effect.Data.Testing.Tests/Trax.Effect.Data.Testing.Tests.csproj" />
     <Project Path="tests/Trax.Effect.StateMachine.Tests/Trax.Effect.StateMachine.Tests.csproj" />
     <Project Path="tests/Trax.Effect.StateMachine.Persistence.Integration/Trax.Effect.StateMachine.Persistence.Integration.csproj" />
+    <Project Path="tests/Trax.Effect.StateMachine.Tests.Stress/Trax.Effect.StateMachine.Tests.Stress.csproj" />
   </Folder>
 </Solution>

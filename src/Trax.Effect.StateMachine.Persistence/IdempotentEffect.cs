@@ -39,7 +39,13 @@ public sealed class IdempotentEffect(IEffectClaimStore claims)
         CancellationToken cancellationToken = default
     )
     {
-        switch (await claims.TryClaim(effectKey, lease ?? SnapshotLimits.DefaultEffectLease, cancellationToken))
+        switch (
+            await claims.TryClaim(
+                effectKey,
+                lease ?? SnapshotLimits.DefaultEffectLease,
+                cancellationToken
+            )
+        )
         {
             case ClaimResult.Won won:
                 string receipt;
@@ -63,7 +69,9 @@ public sealed class IdempotentEffect(IEffectClaimStore claims)
 
             case ClaimResult.Lost:
                 var existing = await claims.GetReceipt(effectKey, cancellationToken);
-                return existing is null ? new EffectOutcome.InProgress() : new EffectOutcome.AlreadyRan(existing);
+                return existing is null
+                    ? new EffectOutcome.InProgress()
+                    : new EffectOutcome.AlreadyRan(existing);
 
             default:
                 return new EffectOutcome.InProgress();

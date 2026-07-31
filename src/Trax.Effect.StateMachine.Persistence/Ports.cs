@@ -18,13 +18,22 @@ public sealed record StoredSnapshot(string Json, Guid Token, string? LastRequest
 public interface ISnapshotStore
 {
     /// <summary>Reads the caller's draft, or <c>null</c> if there is no such draft for that user.</summary>
-    Task<StoredSnapshot?> Get(string userKey, Guid id, CancellationToken cancellationToken = default);
+    Task<StoredSnapshot?> Get(
+        string userKey,
+        Guid id,
+        CancellationToken cancellationToken = default
+    );
 
     /// <summary>
     /// Insert-or-update (the autosave path). Returns <c>false</c> on a concurrent-write conflict
     /// (the draft changed elsewhere), <c>true</c> otherwise.
     /// </summary>
-    Task<bool> Upsert(string userKey, Guid id, Snapshot snapshot, CancellationToken cancellationToken = default);
+    Task<bool> Upsert(
+        string userKey,
+        Guid id,
+        Snapshot snapshot,
+        CancellationToken cancellationToken = default
+    );
 
     /// <summary>
     /// Conditional update used by the authoritative path: writes only if the row still carries

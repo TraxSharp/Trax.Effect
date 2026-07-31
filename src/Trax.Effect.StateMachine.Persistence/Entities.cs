@@ -108,7 +108,8 @@ public class EffectClaim
 /// <c>OnModelCreating</c> helpers. Tests build the tables via <c>EnsureCreated</c> against a throwaway
 /// database; a production host applies the equivalent migration.
 /// </summary>
-public sealed class SnapshotDbContext(DbContextOptions<SnapshotDbContext> options) : DbContext(options)
+public sealed class SnapshotDbContext(DbContextOptions<SnapshotDbContext> options)
+    : DbContext(options)
 {
     public DbSet<SnapshotRecord> SnapshotDrafts => Set<SnapshotRecord>();
     public DbSet<EffectClaim> EffectClaims => Set<EffectClaim>();

@@ -5,9 +5,12 @@ public sealed class FakePrincipal(string? userKey) : ISnapshotPrincipal
     public string? CurrentUserKey => userKey;
 }
 
+/// <summary>The order machine's irreversible effect port (bound inline via RunsOnce&lt;IOrderCharge&gt;).</summary>
+public interface IOrderCharge : IEffect { }
+
 /// <summary>An effect that counts deliveries and returns a distinct receipt each time — so a test can prove
 /// exactly-once from the call count and the receipt in the snapshot.</summary>
-public sealed class CountingEffect(bool fail = false) : IEffect
+public sealed class CountingEffect(bool fail = false) : IOrderCharge
 {
     private int _calls;
 
