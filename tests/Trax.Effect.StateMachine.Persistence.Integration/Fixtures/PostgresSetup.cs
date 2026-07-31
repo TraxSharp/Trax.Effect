@@ -16,8 +16,11 @@ namespace Trax.Effect.StateMachine.Persistence.Integration;
 [SetUpFixture]
 public class PostgresSetup
 {
+    // Connect to the always-present `postgres` maintenance database to create/drop the throwaway one. The
+    // local docker-compose and the CI Postgres service disagree on which app databases exist, but every
+    // Postgres has `postgres`.
     private const string Maintenance =
-        "Host=localhost;Port=5432;Username=trax;Password=trax123;Database=trax;Include Error Detail=true";
+        "Host=localhost;Port=5432;Username=trax;Password=trax123;Database=postgres;Include Error Detail=true";
     private const string Database = "trax_statemachine_it";
 
     public static string ConnectionString { get; } =

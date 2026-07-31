@@ -17,8 +17,9 @@ namespace Trax.Effect.StateMachine.Tests.Stress;
 [SetUpFixture]
 public class StressDb
 {
+    // The always-present `postgres` maintenance database (see PostgresSetup for why).
     private const string Maintenance =
-        "Host=localhost;Port=5432;Username=trax;Password=trax123;Database=trax;Include Error Detail=true";
+        "Host=localhost;Port=5432;Username=trax;Password=trax123;Database=postgres;Include Error Detail=true";
     private const string Database = "trax_statemachine_stress";
 
     public static string ConnectionString { get; } =
