@@ -147,4 +147,28 @@ public class AdvanceTests
             .Which.Reason.Should()
             .Be(RejectionReasons.InternalError);
     }
+
+    [Test]
+    public void Advance_where_a_guard_throws_is_internal_error_not_an_exception()
+    {
+        // Guards are hand-written per runtime; a throwing guard must degrade to internal-error rather
+        // than escape Advance, exactly like a throwing reducer (PD4 totality applies to guards too).
+        var a = new Snapshot
+        {
+            Machine = "faulty",
+            Version = 1,
+            State = "A",
+            Context = new JsonObject(),
+        };
+
+        AdvanceResult result = null!;
+        var act = () => result = FaultyMachine.Machine.Advance(a, "Trap");
+
+        act.Should().NotThrow();
+        result
+            .Should()
+            .BeOfType<AdvanceResult.Rejected>()
+            .Which.Reason.Should()
+            .Be(RejectionReasons.InternalError);
+    }
 }
