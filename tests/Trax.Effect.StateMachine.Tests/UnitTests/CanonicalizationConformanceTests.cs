@@ -69,6 +69,19 @@ public class CanonicalizationConformanceTests
     }
 
     [Test]
+    public void Serialize_uses_the_backspace_formfeed_and_carriage_return_short_escapes()
+    {
+        // U+0008, U+000C, U+000D have JSON.stringify short escapes \b \f \r (the control escapes the test
+        // above does not exercise). Backslash built from its code point so the escape text is not in source.
+        var input = new string([(char)0x08, (char)0x0C, (char)0x0D]);
+        var bs = (char)0x5C;
+        var expectedInner = $"{bs}b{bs}f{bs}r";
+        Wire(new JsonObject { ["s"] = input })
+            .Should()
+            .Be(Envelope("{\"s\":\"" + expectedInner + "\"}"));
+    }
+
+    [Test]
     public void Serialize_keeps_astral_characters_literal()
     {
         Wire(new JsonObject { ["s"] = "😀" }).Should().Be(Envelope("{\"s\":\"😀\"}"));

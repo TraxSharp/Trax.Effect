@@ -178,6 +178,17 @@ public class RuleEvaluatorTests
             .BeFalse();
     }
 
+    [Test]
+    public void Compare_is_false_for_an_out_of_range_operator()
+    {
+        // A corrupt or forward-incompatible op must be a definite reject, not a throw: the class promises the
+        // evaluator is total. Guards the `_ => false` arm against being turned into a throw.
+        var ctx = new JsonObject { ["total"] = 5 };
+        Eval(new Rule.Compare(RuleSource.Context, "total", (CompareOp)999, 5), ctx)
+            .Should()
+            .BeFalse("an unknown operator is a total reject");
+    }
+
     #endregion
 
     #region Count (array length)

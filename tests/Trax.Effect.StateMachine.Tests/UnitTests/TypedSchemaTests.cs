@@ -81,5 +81,30 @@ public class TypedSchemaTests
 
     private sealed record EmptyContext;
 
+    private sealed record NestedMeta
+    {
+        public int A { get; init; }
+    }
+
+    private sealed record WithObjectAndNullableValue
+    {
+        public NestedMeta Meta { get; init; } = new();
+        public int? Limit { get; init; }
+    }
+
+    [Test]
+    public void SchemaReflection_maps_a_complex_property_to_object_and_a_nullable_value_type_to_nullable()
+    {
+        var schema = SchemaReflection.For<WithObjectAndNullableValue>();
+
+        var meta = schema.Fields.Single(f => f.Name == "meta");
+        meta.Type.Should().Be(JsonFieldType.Object, "a non-enumerable complex type maps to object");
+        meta.Nullable.Should().BeFalse();
+
+        var limit = schema.Fields.Single(f => f.Name == "limit");
+        limit.Type.Should().Be(JsonFieldType.Number);
+        limit.Nullable.Should().BeTrue("int? is a nullable value type");
+    }
+
     #endregion
 }

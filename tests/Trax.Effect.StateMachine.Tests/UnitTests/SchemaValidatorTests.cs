@@ -62,6 +62,15 @@ public class SchemaValidatorTests
     {
         Valid(new JsonObject { ["name"] = 5, ["count"] = 1 }).Should().BeFalse();
         Valid(new JsonObject { ["name"] = "a", ["count"] = "x" }).Should().BeFalse();
+        Valid(
+                new JsonObject
+                {
+                    ["name"] = new JsonObject { ["x"] = 1 },
+                    ["count"] = 1,
+                }
+            )
+            .Should()
+            .BeFalse("an object is not a string");
     }
 
     [Test]
@@ -136,5 +145,29 @@ public class SchemaValidatorTests
             )
             .Should()
             .BeTrue();
+    }
+
+    private sealed record Nested
+    {
+        public int A { get; init; }
+    }
+
+    private sealed record WithObject
+    {
+        public Nested Meta { get; init; } = new();
+    }
+
+    [Test]
+    public void Validates_an_object_typed_field()
+    {
+        // A field reflected to JsonFieldType.Object accepts a JSON object and rejects a scalar or array.
+        var schema = SchemaReflection.For<WithObject>();
+        bool Ok(JsonObject c) => SchemaValidator.Validate(schema, c) is null;
+
+        Ok(new JsonObject { ["meta"] = new JsonObject { ["a"] = 1 } }).Should().BeTrue();
+        Ok(new JsonObject { ["meta"] = "x" }).Should().BeFalse("a string is not an object");
+        Ok(new JsonObject { ["meta"] = new JsonArray() })
+            .Should()
+            .BeFalse("an array is not an object");
     }
 }
