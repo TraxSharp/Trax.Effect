@@ -166,6 +166,25 @@ public static class IrExporter
                 o["value"] = r.Value;
                 return o;
             }
+            case Rule.Length r:
+            {
+                var o = FieldRule("length", r.Source, r.Field);
+                o["op"] = OpName(r.Op);
+                o["value"] = r.Value;
+                return o;
+            }
+            case Rule.BoolEquals r:
+            {
+                var o = FieldRule("boolEquals", r.Source, r.Field);
+                o["value"] = r.Value;
+                return o;
+            }
+            case Rule.ArrayOf r:
+            {
+                var o = FieldRule("arrayOf", r.Source, r.Field);
+                o["type"] = TypeName(r.ElementType);
+                return o;
+            }
             case Rule.All r:
                 return new JsonObject { ["rule"] = "all", ["rules"] = WriteRules(r.Rules) };
             case Rule.Any r:
