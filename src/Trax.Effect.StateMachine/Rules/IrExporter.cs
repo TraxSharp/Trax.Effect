@@ -47,6 +47,16 @@ public static class IrExporter
             ["transitions"] = transitions,
         };
 
+        // Per-state invariants (the .Requires(...) policy, on top of the context schema). Omitted when a
+        // machine has none, so a shape-only machine's IR is unchanged.
+        if (declarative.StateInvariants.Count > 0)
+        {
+            var invariants = new JsonObject();
+            foreach (var (state, rule) in declarative.StateInvariants)
+                invariants[state.ToString()!] = WriteRule(rule);
+            ir["invariants"] = invariants;
+        }
+
         return CanonicalJson.Serialize(ir);
     }
 

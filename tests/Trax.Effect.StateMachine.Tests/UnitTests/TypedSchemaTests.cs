@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using FluentAssertions;
 
 namespace Trax.Effect.StateMachine.Tests.UnitTests;
@@ -104,6 +105,36 @@ public class TypedSchemaTests
         var limit = schema.Fields.Single(f => f.Name == "limit");
         limit.Type.Should().Be(JsonFieldType.Number);
         limit.Nullable.Should().BeTrue("int? is a nullable value type");
+    }
+
+    private sealed record TypedCollections
+    {
+        public int[] Ids { get; init; } = [];
+        public List<string> Tags { get; init; } = [];
+
+        [AllowedValues("federal", "state", "unsure")]
+        public string Legislature { get; init; } = "federal";
+    }
+
+    [Test]
+    public void SchemaReflection_derives_array_element_and_allowed_value_constraints()
+    {
+        var schema = SchemaReflection.For<TypedCollections>();
+
+        schema
+            .Fields.Single(f => f.Name == "ids")
+            .Constraints.Should()
+            .Contain(new Rule.ArrayOf(RuleSource.Context, "ids", JsonFieldType.Number));
+        schema
+            .Fields.Single(f => f.Name == "tags")
+            .Constraints.Should()
+            .Contain(new Rule.ArrayOf(RuleSource.Context, "tags", JsonFieldType.String));
+
+        var legislature = schema
+            .Fields.Single(f => f.Name == "legislature")
+            .Constraints.OfType<Rule.OneOf>()
+            .Single();
+        legislature.Values.Should().Equal("federal", "state", "unsure");
     }
 
     #endregion
