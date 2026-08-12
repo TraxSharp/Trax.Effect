@@ -4,6 +4,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Trax.Effect.StateMachine.Persistence.Integration.Fakes;
 using Trax.Effect.StateMachine.Persistence.Integration.Fixtures;
 
+// This file deliberately covers the obsolete IServiceCollection AddTraxStateMachines(...) form as the
+// back-compat proof (the builder form is covered by AddStateMachinesBuilderTests). Suppress the obsolete
+// warning here only.
+#pragma warning disable CS0618
+
 namespace Trax.Effect.StateMachine.Persistence.Integration;
 
 /// <summary>
@@ -88,6 +93,6 @@ public class AddTraxStateMachinesTests
 
         act.Should()
             .Throw<InvalidOperationException>()
-            .WithMessage("*AddTraxStateMachines*no machines*");
+            .WithMessage("*No state machines were found*");
     }
 }

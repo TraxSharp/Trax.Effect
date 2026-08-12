@@ -8,35 +8,58 @@ namespace Trax.Effect.StateMachine.Persistence;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Discover every <see cref="Machine{TState,TTrigger}"/> in the given assemblies and wire the whole
-    /// subsystem, the store, the effect-claim ledger, the exactly-once runner, the machine registry, and
-    /// the four generic <c>stateMachine</c> mutations, in one call. No per-machine registration, and no
-    /// effect wiring in the composition root: each machine declares its committed states and its
-    /// irreversible effect inline, and this reads them off the fluent build.
-    ///
-    /// <para>The host still binds two things a machine can't know: an <see cref="ISnapshotPrincipal"/>
-    /// (mapping its auth to a user key) and each effect implementation the machines reference. It also
-    /// adds <see cref="Mutations.StateMachineMutations.Assembly"/> to its <c>AddMediator(...)</c> scan so
-    /// Trax can route the four mutations by input type.</para>
+    /// <b>Obsolete.</b> Prefer <c>trax.AddStateMachines(...)</c> inside <c>AddTrax</c>: the builder form also
+    /// auto-registers the <see cref="SnapshotDbContext"/> and contributes the generic mutations to the mediator
+    /// scan, so the host writes one call. This <see cref="IServiceCollection"/> form has no builder access, so a
+    /// host using it must still register <c>AddDbContext&lt;SnapshotDbContext&gt;</c> and add
+    /// <see cref="Mutations.StateMachineMutations.Assembly"/> to its <c>AddMediator(...)</c> scan.
     /// </summary>
+    [Obsolete(
+        "Prefer trax.AddStateMachines(...) inside AddTrax; the IServiceCollection form cannot auto-wire the "
+            + "mediator scan or the SnapshotDbContext."
+    )]
     public static IServiceCollection AddTraxStateMachines(
         this IServiceCollection services,
         params Assembly[] assemblies
-    ) => services.AddTraxStateMachines(_ => { }, assemblies);
+    )
+    {
+        RegisterMachinesAndStores(services, null, assemblies);
+        return services;
+    }
 
     /// <summary>
-    /// As <see cref="AddTraxStateMachines(IServiceCollection, Assembly[])"/>, with host-level options (see
-    /// <see cref="StateMachineOptions"/>) such as the draft TTL. Example:
-    /// <c>services.AddTraxStateMachines(o =&gt; o.DraftTtl = TimeSpan.FromDays(30), typeof(Program).Assembly)</c>.
+    /// <b>Obsolete.</b> As <see cref="AddTraxStateMachines(IServiceCollection, Assembly[])"/>, with host-level
+    /// options (see <see cref="StateMachineOptions"/>). Prefer <c>trax.AddStateMachines(...)</c>.
     /// </summary>
+    [Obsolete(
+        "Prefer trax.AddStateMachines(...) inside AddTrax; the IServiceCollection form cannot auto-wire the "
+            + "mediator scan or the SnapshotDbContext."
+    )]
     public static IServiceCollection AddTraxStateMachines(
         this IServiceCollection services,
         Action<StateMachineOptions> configure,
         params Assembly[] assemblies
     )
     {
+        RegisterMachinesAndStores(services, configure, assemblies);
+        return services;
+    }
+
+    /// <summary>
+    /// Shared registration for both the obsolete <see cref="IServiceCollection"/> form and the
+    /// <c>trax.AddStateMachines(...)</c> builder form: the options, machine discovery, the store, the
+    /// effect-claim ledger, the exactly-once runner, the machine registry, and the four generic
+    /// <c>stateMachine</c> mutation routes. It does NOT register the <see cref="SnapshotDbContext"/> or touch
+    /// the mediator scan; the builder form layers those on.
+    /// </summary>
+    internal static void RegisterMachinesAndStores(
+        IServiceCollection services,
+        Action<StateMachineOptions>? configure,
+        Assembly[] assemblies
+    )
+    {
         var options = new StateMachineOptions();
-        configure(options);
+        configure?.Invoke(options);
         services.AddSingleton(options);
 
         var machineTypes = assemblies
@@ -50,8 +73,8 @@ public static class ServiceCollectionExtensions
 
         if (machineTypes.Count == 0)
             throw new InvalidOperationException(
-                "AddTraxStateMachines(...) found no machines. Pass the assemblies that contain your "
-                    + "Machine<TState, TTrigger> subclasses, e.g. services.AddTraxStateMachines(typeof(Program).Assembly)."
+                "No state machines were found. Pass the assemblies that contain your "
+                    + "Machine<TState, TTrigger> subclasses, e.g. trax.AddStateMachines(typeof(Program).Assembly)."
             );
 
         foreach (var type in machineTypes)
@@ -66,7 +89,5 @@ public static class ServiceCollectionExtensions
         services.AddScopedTraxRoute<IAdvanceSnapshot, AdvanceSnapshot>();
         services.AddScopedTraxRoute<ILoadSnapshot, LoadSnapshot>();
         services.AddScopedTraxRoute<ISendSnapshot, SendSnapshot>();
-
-        return services;
     }
 }
