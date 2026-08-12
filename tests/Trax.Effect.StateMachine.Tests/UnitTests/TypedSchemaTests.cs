@@ -111,6 +111,9 @@ public class TypedSchemaTests
     {
         public int[] Ids { get; init; } = [];
         public List<string> Tags { get; init; } = [];
+        public bool[] Flags { get; init; } = [];
+        public object[] Things { get; init; } = [];
+        public System.Collections.ArrayList Raw { get; init; } = [];
 
         [AllowedValues("federal", "state", "unsure")]
         public string Legislature { get; init; } = "federal";
@@ -120,15 +123,30 @@ public class TypedSchemaTests
     public void SchemaReflection_derives_array_element_and_allowed_value_constraints()
     {
         var schema = SchemaReflection.For<TypedCollections>();
+        Rule.ArrayOf? ArrayConstraint(string name) =>
+            schema
+                .Fields.Single(f => f.Name == name)
+                .Constraints.OfType<Rule.ArrayOf>()
+                .SingleOrDefault();
 
-        schema
-            .Fields.Single(f => f.Name == "ids")
-            .Constraints.Should()
-            .Contain(new Rule.ArrayOf(RuleSource.Context, "ids", JsonFieldType.Number));
-        schema
-            .Fields.Single(f => f.Name == "tags")
-            .Constraints.Should()
-            .Contain(new Rule.ArrayOf(RuleSource.Context, "tags", JsonFieldType.String));
+        ArrayConstraint("ids")
+            .Should()
+            .Be(new Rule.ArrayOf(RuleSource.Context, "ids", JsonFieldType.Number));
+        ArrayConstraint("tags")
+            .Should()
+            .Be(new Rule.ArrayOf(RuleSource.Context, "tags", JsonFieldType.String));
+        ArrayConstraint("flags")
+            .Should()
+            .Be(new Rule.ArrayOf(RuleSource.Context, "flags", JsonFieldType.Boolean));
+
+        // Element types that are not string/bool/number get no ArrayOf: an array of objects, and a
+        // non-generic collection whose element type can't be read.
+        ArrayConstraint("things")
+            .Should()
+            .BeNull("an array of objects has no element constraint");
+        ArrayConstraint("raw")
+            .Should()
+            .BeNull("a non-generic collection has no element constraint");
 
         var legislature = schema
             .Fields.Single(f => f.Name == "legislature")

@@ -25,31 +25,56 @@ public class StateInvariantTests
     private sealed record DraftContext
     {
         public string Body { get; init; } = "";
+        public bool Guided { get; init; }
+        public int[] Ids { get; init; } = [];
     }
+
+    private static JsonObject Fresh() =>
+        new()
+        {
+            ["body"] = "",
+            ["guided"] = false,
+            ["ids"] = new JsonArray(),
+        };
 
     private static BuiltMachine<S, T> Build()
     {
         var m = new MachineBuilder<S, T>();
-        m.Id("inv").StartsAt(S.Draft, () => new JsonObject { ["body"] = "" });
+        m.Id("inv").StartsAt(S.Draft, Fresh);
         m.In(S.Draft).Context<DraftContext>().On(T.Finish).To(S.Done);
         m.In(S.Done)
             .Context<DraftContext>()
-            .Requires(Field((DraftContext d) => d.Body).LengthAtLeast(6));
+            .Requires(Field((DraftContext d) => d.Body).LengthAtLeast(6))
+            .Requires(Field((DraftContext d) => d.Guided).IsTrue());
         return m.Build();
     }
+
+    private static JsonObject DoneContext(string body, bool guided) =>
+        new()
+        {
+            ["body"] = body,
+            ["guided"] = guided,
+            ["ids"] = new JsonArray(),
+        };
 
     [Test]
     public void A_requirement_composes_with_the_schema_in_the_state_validator()
     {
         var validate = Build().Definition.ContextValidators[S.Done];
 
-        validate(new JsonObject { ["body"] = "123456" })
+        validate(DoneContext("123456", guided: true))
             .Should()
-            .BeNull("a complete draft is valid in Done");
-        validate(new JsonObject { ["body"] = "short" })
+            .BeNull("a complete, guided draft is valid in Done");
+        validate(DoneContext("short", guided: true))
             .Should()
             .NotBeNull("Done requires a body of length >= 6");
-        validate(new JsonObject { ["body"] = 5 })
+        validate(DoneContext("123456", guided: false))
+            .Should()
+            .NotBeNull("Done requires guided = true");
+
+        var wrongType = DoneContext("123456", guided: true);
+        wrongType["body"] = 5;
+        validate(wrongType)
             .Should()
             .NotBeNull("the schema is still enforced: body must be a string");
     }
@@ -59,7 +84,12 @@ public class StateInvariantTests
     {
         var ir = IrExporter.Export(Build());
 
-        ir.Should().Contain("\"invariants\"").And.Contain("\"Done\"").And.Contain("\"length\"");
+        ir.Should()
+            .Contain("\"invariants\"")
+            .And.Contain("\"Done\"")
+            .And.Contain("\"length\"")
+            .And.Contain("\"boolEquals\"")
+            .And.Contain("\"arrayOf\"", "the int[] field's element type is a schema constraint");
         // A shape-only machine emits no invariants block.
         DeclarativeTurnstileIrHasNoInvariants();
     }
