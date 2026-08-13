@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Trax.Effect.Configuration.TraxBuilder;
 using Trax.Effect.Data.Services.FeatureDbConfigurator;
+using Trax.Effect.Extensions;
 using Trax.Effect.StateMachine.Persistence.Mutations;
 
 namespace Trax.Effect.StateMachine.Persistence;
@@ -57,11 +58,7 @@ public static class StateMachinesBuilderExtensions
                     + "AddEffects(...).AddStateMachines(...).AddMediator(...)."
             );
 
-        ServiceCollectionExtensions.RegisterMachinesAndStores(
-            builder.ServiceCollection,
-            configure,
-            assemblies
-        );
+        RegisterMachinesAndStores(builder.ServiceCollection, configure, assemblies);
 
         // Auto-register the SnapshotDbContext against the provider the host configured in AddEffects, via the
         // ITraxFeatureDbConfigurator each UseXxx registers. The host never writes AddDbContext.
@@ -74,5 +71,46 @@ public static class StateMachinesBuilderExtensions
         builder.Root.ContributedMediatorAssemblies.Add(StateMachineMutations.Assembly);
 
         return builder;
+    }
+
+    // Discover the machines and wire the store, the effect-claim ledger, the exactly-once runner, the machine
+    // registry, and the four generic stateMachine mutation routes.
+    private static void RegisterMachinesAndStores(
+        IServiceCollection services,
+        Action<StateMachineOptions>? configure,
+        Assembly[] assemblies
+    )
+    {
+        var options = new StateMachineOptions();
+        configure?.Invoke(options);
+        services.AddSingleton(options);
+
+        var machineTypes = assemblies
+            .SelectMany(assembly => assembly.GetTypes())
+            .Where(type =>
+                type is { IsAbstract: false, IsClass: true }
+                && typeof(IMachine).IsAssignableFrom(type)
+            )
+            .Distinct()
+            .ToList();
+
+        if (machineTypes.Count == 0)
+            throw new InvalidOperationException(
+                "No state machines were found. Pass the assemblies that contain your "
+                    + "Machine<TState, TTrigger> subclasses, e.g. trax.AddStateMachines(typeof(Program).Assembly)."
+            );
+
+        foreach (var type in machineTypes)
+            services.AddSingleton(typeof(IMachine), type);
+
+        services.AddScoped<ISnapshotStore, EfSnapshotStore>();
+        services.AddScoped<IEffectClaimStore, EfEffectClaimStore>();
+        services.AddScoped<IdempotentEffect>();
+        services.AddScoped<ISnapshotMachineRegistry, SnapshotMachineRegistry>();
+
+        services.AddScopedTraxRoute<ISaveSnapshot, SaveSnapshot>();
+        services.AddScopedTraxRoute<IAdvanceSnapshot, AdvanceSnapshot>();
+        services.AddScopedTraxRoute<ILoadSnapshot, LoadSnapshot>();
+        services.AddScopedTraxRoute<ISendSnapshot, SendSnapshot>();
     }
 }
