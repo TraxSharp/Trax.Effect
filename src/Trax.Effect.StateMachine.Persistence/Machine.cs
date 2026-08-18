@@ -20,6 +20,14 @@ public interface IMachine
     /// </summary>
     string ExportIr();
 
+    /// <summary>
+    /// A stable content hash (lowercase hex SHA-256) of this machine's exported IR (<see cref="ExportIr"/>) —
+    /// the cross-language identity of its behavioural contract. The generated frontend twin embeds the same
+    /// hash, computed from the same committed IR, so a client and the server can detect at runtime that they
+    /// are running different machine definitions (version skew) and refuse to silently disagree on a transition.
+    /// </summary>
+    string SchemaHash { get; }
+
     /// <summary>Build the draft service for a request's store (threading committed states, the effect-claim reset, and the optional draft TTL).</summary>
     ISnapshotDraftService CreateService(
         ISnapshotStore store,
@@ -74,6 +82,13 @@ public abstract class Machine<TState, TTrigger> : IMachine
     public bool HasEffect => Built.Effects.Count > 0;
 
     public string ExportIr() => IrExporter.Export(Built);
+
+    private string? _schemaHash;
+
+    public string SchemaHash =>
+        _schemaHash ??= Convert.ToHexStringLower(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(ExportIr()))
+        );
 
     public ISnapshotDraftService CreateService(
         ISnapshotStore store,
