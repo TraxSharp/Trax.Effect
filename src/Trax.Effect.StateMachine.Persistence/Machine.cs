@@ -28,6 +28,21 @@ public interface IMachine
     /// </summary>
     string SchemaHash { get; }
 
+    /// <summary>
+    /// The machine's committed differential corpus (the TypeScript oracle's golden JSON), or null if it ships
+    /// none. A host replays it at startup via <see cref="SelfCheck"/> to prove the running C# engine still
+    /// reproduces the frontend twin's behaviour. A machine that carries a corpus loads it (e.g. from an
+    /// embedded resource).
+    /// </summary>
+    string? Corpus { get; }
+
+    /// <summary>
+    /// Replay this machine's <see cref="Corpus"/> through its own engine and return one human-readable diff per
+    /// case it fails to reproduce — empty means exact agreement (and empty when the machine ships no corpus).
+    /// This is the same proof the differential test runs, callable at startup as a self-check.
+    /// </summary>
+    IReadOnlyList<string> SelfCheck();
+
     /// <summary>Build the draft service for a request's store (threading committed states, the effect-claim reset, and the optional draft TTL).</summary>
     ISnapshotDraftService CreateService(
         ISnapshotStore store,
@@ -89,6 +104,12 @@ public abstract class Machine<TState, TTrigger> : IMachine
         _schemaHash ??= Convert.ToHexStringLower(
             System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(ExportIr()))
         );
+
+    /// <summary>Override to ship a committed differential corpus (e.g. an embedded resource); null = none.</summary>
+    public virtual string? Corpus => null;
+
+    public IReadOnlyList<string> SelfCheck() =>
+        Corpus is { } corpus ? CorpusReplay.Replay(Built.Engine, corpus) : Array.Empty<string>();
 
     public ISnapshotDraftService CreateService(
         ISnapshotStore store,
