@@ -26,7 +26,7 @@ public interface IMachine
     /// hash, computed from the same committed IR, so a client and the server can detect at runtime that they
     /// are running different machine definitions (version skew) and refuse to silently disagree on a transition.
     /// </summary>
-    string SchemaHash { get; }
+    string? SchemaHash { get; }
 
     /// <summary>
     /// The machine's committed differential corpus (the TypeScript oracle's golden JSON), or null if it ships
@@ -99,11 +99,33 @@ public abstract class Machine<TState, TTrigger> : IMachine
     public string ExportIr() => IrExporter.Export(Built);
 
     private string? _schemaHash;
+    private bool _schemaHashComputed;
 
-    public string SchemaHash =>
-        _schemaHash ??= Convert.ToHexStringLower(
-            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(ExportIr()))
-        );
+    public string? SchemaHash
+    {
+        get
+        {
+            if (_schemaHashComputed)
+                return _schemaHash;
+            _schemaHashComputed = true;
+            try
+            {
+                _schemaHash = Convert.ToHexStringLower(
+                    System.Security.Cryptography.SHA256.HashData(
+                        System.Text.Encoding.UTF8.GetBytes(ExportIr())
+                    )
+                );
+            }
+            catch (InvalidOperationException)
+            {
+                // A raw-delegate machine has no exportable IR (its guards/reducers are opaque closures), so it
+                // has no frontend twin, no schema hash, and no handshake. Null, not throw: the guard treats it
+                // as "no check" for a client that somehow sends a hash for it.
+                _schemaHash = null;
+            }
+            return _schemaHash;
+        }
+    }
 
     /// <summary>Override to ship a committed differential corpus (e.g. an embedded resource); null = none.</summary>
     public virtual string? Corpus => null;

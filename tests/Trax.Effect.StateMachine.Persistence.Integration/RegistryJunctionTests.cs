@@ -21,7 +21,12 @@ public class RegistryJunctionTests
             .AddSingleton<IOrderCharge>(effect ?? new CountingEffect())
             .BuildServiceProvider();
         return new SnapshotMachineRegistry(
-            new IMachine[] { new TurnstileMachine(), new OrderMachine() },
+            new IMachine[]
+            {
+                new TurnstileMachine(),
+                new OrderMachine(),
+                new DeclarativeTurnstileMachine(),
+            },
             new EfSnapshotStore(context),
             new EfEffectClaimStore(context),
             new IdempotentEffect(new EfEffectClaimStore(context)),
@@ -104,41 +109,51 @@ public class RegistryJunctionTests
     }
 
     [Test]
-    public void A_machines_schema_hash_is_stable_and_exposed_by_the_registry()
+    public void SchemaHash_is_a_stable_hash_for_a_declarative_machine_and_null_for_a_raw_delegate_one()
     {
         var registry = NewRegistry();
-        var hash = registry.SchemaHash("turnstile");
 
+        // A declarative machine has an exportable IR, so a stable 64-hex hash, surfaced by the registry.
+        var hash = registry.SchemaHash("declarative-turnstile");
         hash.Should().NotBeNullOrEmpty();
         hash.Should().MatchRegex("^[0-9a-f]{64}$", "it is a lowercase hex SHA-256 of the exported IR");
-        // Stable across builds of the same machine (the whole point of the handshake).
-        new TurnstileMachine().SchemaHash.Should().Be(hash);
+        new DeclarativeTurnstileMachine().SchemaHash.Should().Be(hash, "the hash is stable across builds");
+
+        // A raw-delegate machine cannot export an IR, so it has NO schema hash and no handshake: null, not throw.
+        registry.SchemaHash("turnstile").Should().BeNull();
+        new TurnstileMachine().SchemaHash.Should().BeNull();
+
         registry.SchemaHash("nope").Should().BeNull();
     }
 
+    private const string DeclarativeTurnstileLocked =
+        "{\"machine\":\"declarative-turnstile\",\"version\":1,\"state\":\"Locked\",\"context\":{}}";
+
     [Test]
-    public async Task A_stale_client_schema_hash_is_refused_by_every_mutation()
+    public async Task A_stale_client_schema_hash_is_refused_while_matching_absent_or_a_hashless_machine_is_not()
     {
         const string Stale = "0000000000000000000000000000000000000000000000000000000000000000";
-        var server = NewRegistry().SchemaHash("turnstile")!;
+        var server = NewRegistry().SchemaHash("declarative-turnstile")!;
 
-        // Save, advance, load, and send all refuse a client whose machine hash does not match the server's.
-        var save = await new SaveSnapshotJunction(NewRegistry(), User).Run(
-            new SaveSnapshotInput
-            {
-                Machine = "turnstile",
-                Id = Guid.NewGuid(),
-                Snapshot = TestTurnstile.InitialJson,
-                SchemaHash = Stale,
-            }
-        );
-        save.Problem!.Code.Should().Be("schema-mismatch");
-
+        // Save/advance/load refuse a client whose hash differs from the server's (a declarative machine).
+        (
+            await new SaveSnapshotJunction(NewRegistry(), User).Run(
+                new SaveSnapshotInput
+                {
+                    Machine = "declarative-turnstile",
+                    Id = Guid.NewGuid(),
+                    Snapshot = DeclarativeTurnstileLocked,
+                    SchemaHash = Stale,
+                }
+            )
+        )
+            .Problem!.Code.Should()
+            .Be("schema-mismatch");
         (
             await new AdvanceSnapshotJunction(NewRegistry(), User).Run(
                 new AdvanceSnapshotInput
                 {
-                    Machine = "turnstile",
+                    Machine = "declarative-turnstile",
                     Id = Guid.NewGuid(),
                     Trigger = "Coin",
                     SchemaHash = Stale,
@@ -147,12 +162,11 @@ public class RegistryJunctionTests
         )
             .Problem!.Code.Should()
             .Be("schema-mismatch");
-
         (
             await new LoadSnapshotJunction(NewRegistry(), User).Run(
                 new LoadSnapshotInput
                 {
-                    Machine = "turnstile",
+                    Machine = "declarative-turnstile",
                     Id = Guid.NewGuid(),
                     SchemaHash = Stale,
                 }
@@ -161,30 +175,49 @@ public class RegistryJunctionTests
             .Problem!.Code.Should()
             .Be("schema-mismatch");
 
+        // The matching hash passes the guard, so the save then succeeds; and omitting it skips the check.
         (
-            await new SendSnapshotJunction(NewRegistry(), User).Run(
-                new SendSnapshotInput
+            await new SaveSnapshotJunction(NewRegistry(), User).Run(
+                new SaveSnapshotInput
                 {
-                    Machine = "order",
+                    Machine = "declarative-turnstile",
                     Id = Guid.NewGuid(),
-                    SchemaHash = "0000000000000000000000000000000000000000000000000000000000000001",
+                    Snapshot = DeclarativeTurnstileLocked,
+                    SchemaHash = server,
+                }
+            )
+        )
+            .Problem.Should()
+            .BeNull();
+        (
+            await new SaveSnapshotJunction(NewRegistry(), User).Run(
+                new SaveSnapshotInput
+                {
+                    Machine = "declarative-turnstile",
+                    Id = Guid.NewGuid(),
+                    Snapshot = DeclarativeTurnstileLocked,
+                }
+            )
+        )
+            .Problem.Should()
+            .BeNull();
+
+        // A raw-delegate machine has a null server hash, so the guard SKIPS even a stale client hash (it falls
+        // through to the normal flow) rather than throwing — advance reaches "not-found", NOT schema-mismatch.
+        (
+            await new AdvanceSnapshotJunction(NewRegistry(), User).Run(
+                new AdvanceSnapshotInput
+                {
+                    Machine = "turnstile",
+                    Id = Guid.NewGuid(),
+                    Trigger = "Coin",
+                    Input = "{\"coin\":\"quarter\"}",
+                    SchemaHash = Stale,
                 }
             )
         )
             .Problem!.Code.Should()
-            .Be("schema-mismatch");
-
-        // The matching hash passes the guard (save then succeeds); and omitting it entirely skips the check.
-        var matched = await new SaveSnapshotJunction(NewRegistry(), User).Run(
-            new SaveSnapshotInput
-            {
-                Machine = "turnstile",
-                Id = Guid.NewGuid(),
-                Snapshot = TestTurnstile.InitialJson,
-                SchemaHash = server,
-            }
-        );
-        matched.Problem.Should().BeNull();
+            .Be("not-found");
     }
 
     [Test]
