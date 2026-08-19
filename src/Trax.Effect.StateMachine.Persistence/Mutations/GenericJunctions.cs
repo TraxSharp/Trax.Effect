@@ -45,7 +45,9 @@ public class SaveSnapshotJunction(ISnapshotMachineRegistry registry, ISnapshotPr
         if (registry.Service(input.Machine) is not { } service)
             return Problem("unknown-machine", $"No registered machine named '{input.Machine}'.");
 
-        if (SnapshotGuards.SchemaMismatch(registry, input.Machine, input.SchemaHash) is { } mismatch)
+        if (
+            SnapshotGuards.SchemaMismatch(registry, input.Machine, input.SchemaHash) is { } mismatch
+        )
             return Problem(mismatch.Code, mismatch.Message);
 
         return await service.Autosave(userKey, input.Id, input.Snapshot, CancellationToken) switch
@@ -86,7 +88,9 @@ public class AdvanceSnapshotJunction(
         if (registry.Service(input.Machine) is not { } service)
             return Problem("unknown-machine", $"No registered machine named '{input.Machine}'.");
 
-        if (SnapshotGuards.SchemaMismatch(registry, input.Machine, input.SchemaHash) is { } mismatch)
+        if (
+            SnapshotGuards.SchemaMismatch(registry, input.Machine, input.SchemaHash) is { } mismatch
+        )
             return Problem(mismatch.Code, mismatch.Message);
 
         JsonNode? triggerInput;
@@ -163,7 +167,9 @@ public class LoadSnapshotJunction(ISnapshotMachineRegistry registry, ISnapshotPr
         if (registry.Service(input.Machine) is not { } service)
             return Problem("unknown-machine", $"No registered machine named '{input.Machine}'.");
 
-        if (SnapshotGuards.SchemaMismatch(registry, input.Machine, input.SchemaHash) is { } mismatch)
+        if (
+            SnapshotGuards.SchemaMismatch(registry, input.Machine, input.SchemaHash) is { } mismatch
+        )
             return Problem(mismatch.Code, mismatch.Message);
 
         return await service.Load(userKey, input.Id, CancellationToken) switch
@@ -198,7 +204,9 @@ public class SendSnapshotJunction(ISnapshotMachineRegistry registry, ISnapshotPr
             );
         if (registry.Service(input.Machine) is null)
             return Problem("unknown-machine", $"No registered machine named '{input.Machine}'.");
-        if (SnapshotGuards.SchemaMismatch(registry, input.Machine, input.SchemaHash) is { } mismatch)
+        if (
+            SnapshotGuards.SchemaMismatch(registry, input.Machine, input.SchemaHash) is { } mismatch
+        )
             return Problem(mismatch.Code, mismatch.Message);
         if (registry.EffectRunner(input.Machine) is not { } runner)
             return Problem(

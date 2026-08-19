@@ -116,8 +116,11 @@ public class RegistryJunctionTests
         // A declarative machine has an exportable IR, so a stable 64-hex hash, surfaced by the registry.
         var hash = registry.SchemaHash("declarative-turnstile");
         hash.Should().NotBeNullOrEmpty();
-        hash.Should().MatchRegex("^[0-9a-f]{64}$", "it is a lowercase hex SHA-256 of the exported IR");
-        new DeclarativeTurnstileMachine().SchemaHash.Should().Be(hash, "the hash is stable across builds");
+        hash.Should()
+            .MatchRegex("^[0-9a-f]{64}$", "it is a lowercase hex SHA-256 of the exported IR");
+        new DeclarativeTurnstileMachine()
+            .SchemaHash.Should()
+            .Be(hash, "the hash is stable across builds");
 
         // A raw-delegate machine cannot export an IR, so it has NO schema hash and no handshake: null, not throw.
         registry.SchemaHash("turnstile").Should().BeNull();
@@ -162,9 +165,7 @@ public class RegistryJunctionTests
                     SchemaHash = Stale,
                 }
             )
-        )
-            .Problem!.Code.Should()
-            .Be("schema-mismatch");
+        ).Problem!.Code.Should().Be("schema-mismatch");
         (
             await new LoadSnapshotJunction(NewRegistry(), User).Run(
                 new LoadSnapshotInput
@@ -174,9 +175,7 @@ public class RegistryJunctionTests
                     SchemaHash = Stale,
                 }
             )
-        )
-            .Problem!.Code.Should()
-            .Be("schema-mismatch");
+        ).Problem!.Code.Should().Be("schema-mismatch");
 
         // The matching hash passes the guard, so the save then succeeds; and omitting it skips the check.
         (
@@ -201,9 +200,7 @@ public class RegistryJunctionTests
                     Snapshot = DeclarativeTurnstileLocked,
                 }
             )
-        )
-            .Problem.Should()
-            .BeNull();
+        ).Problem.Should().BeNull();
 
         // A raw-delegate machine has a null server hash, so the guard SKIPS even a stale client hash (it falls
         // through to the normal flow) rather than throwing — advance reaches "not-found", NOT schema-mismatch.
@@ -257,7 +254,9 @@ public class RegistryJunctionTests
         // The client claimed a different result: refused as a divergence (the server result stays authoritative).
         var idBad = Guid.NewGuid();
         await Save(idBad);
-        (await Advance(idBad, DeclarativeTurnstileLocked)).Problem!.Code.Should().Be("client-divergence");
+        (await Advance(idBad, DeclarativeTurnstileLocked))
+            .Problem!.Code.Should()
+            .Be("client-divergence");
 
         // No client result: no check (older clients that don't send it are unaffected).
         var idNone = Guid.NewGuid();
