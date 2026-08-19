@@ -99,19 +99,35 @@ public class AdvanceSnapshotJunction(
             return Problem("malformed", "The trigger input is not valid JSON.");
         }
 
-        return await service.Advance(
+        var outcome = await service.Advance(
             userKey,
             input.Id,
             input.Trigger,
             triggerInput,
             input.RequestId,
             CancellationToken
-        ) switch
+        );
+
+        if (outcome is AdvanceOutcome.Advanced advanced)
         {
-            AdvanceOutcome.Advanced advanced => new AdvanceSnapshotOutput
-            {
-                Snapshot = service.Serialize(advanced.Snapshot),
-            },
+            var serverWire = service.Serialize(advanced.Snapshot);
+            // Runtime differential: if the client sent the snapshot its twin computed for this advance, it must
+            // equal the server's authoritative result (both are canonical wire). A divergence means the two
+            // engines disagreed on a real transition — a skew the schema hash missed, or a genuine bug. Enforce:
+            // refuse and let the client reload. The server's result is authoritative regardless.
+            if (
+                input.ClientResult is { } clientWire
+                && !string.Equals(clientWire, serverWire, StringComparison.Ordinal)
+            )
+                return Problem(
+                    "client-divergence",
+                    "The client and server disagree on this transition; reload to continue."
+                );
+            return new AdvanceSnapshotOutput { Snapshot = serverWire };
+        }
+
+        return outcome switch
+        {
             AdvanceOutcome.Rejected rejected => Problem(
                 rejected.Reason,
                 rejected.Detail ?? rejected.Reason

@@ -129,6 +129,9 @@ public class RegistryJunctionTests
     private const string DeclarativeTurnstileLocked =
         "{\"machine\":\"declarative-turnstile\",\"version\":1,\"state\":\"Locked\",\"context\":{}}";
 
+    private const string DeclarativeTurnstileUnlocked =
+        "{\"machine\":\"declarative-turnstile\",\"version\":1,\"state\":\"Unlocked\",\"context\":{\"paidWith\":\"quarter\"}}";
+
     [Test]
     public async Task A_stale_client_schema_hash_is_refused_while_matching_absent_or_a_hashless_machine_is_not()
     {
@@ -218,6 +221,48 @@ public class RegistryJunctionTests
         )
             .Problem!.Code.Should()
             .Be("not-found");
+    }
+
+    [Test]
+    public async Task Advance_refuses_a_divergent_client_result_and_accepts_a_matching_or_absent_one()
+    {
+        async Task Save(Guid id) =>
+            await new SaveSnapshotJunction(NewRegistry(), User).Run(
+                new SaveSnapshotInput
+                {
+                    Machine = "declarative-turnstile",
+                    Id = id,
+                    Snapshot = DeclarativeTurnstileLocked,
+                }
+            );
+        Task<AdvanceSnapshotOutput> Advance(Guid id, string? clientResult) =>
+            new AdvanceSnapshotJunction(NewRegistry(), User).Run(
+                new AdvanceSnapshotInput
+                {
+                    Machine = "declarative-turnstile",
+                    Id = id,
+                    Trigger = "Coin",
+                    Input = "{\"coin\":\"quarter\"}",
+                    ClientResult = clientResult,
+                }
+            );
+
+        // The client's twin computed the same result the server did: the advance succeeds and returns it.
+        var idOk = Guid.NewGuid();
+        await Save(idOk);
+        var ok = await Advance(idOk, DeclarativeTurnstileUnlocked);
+        ok.Problem.Should().BeNull();
+        ok.Snapshot.Should().Contain("\"state\":\"Unlocked\"");
+
+        // The client claimed a different result: refused as a divergence (the server result stays authoritative).
+        var idBad = Guid.NewGuid();
+        await Save(idBad);
+        (await Advance(idBad, DeclarativeTurnstileLocked)).Problem!.Code.Should().Be("client-divergence");
+
+        // No client result: no check (older clients that don't send it are unaffected).
+        var idNone = Guid.NewGuid();
+        await Save(idNone);
+        (await Advance(idNone, null)).Problem.Should().BeNull();
     }
 
     [Test]
