@@ -17,13 +17,17 @@ if your work contradicts one, say so rather than silently overriding it.
 | Working on | Read first |
 | --- | --- |
 | a schema change | [0001](./docs/adr/0001-schema-changes-are-hand-written-sql.md), hand-written SQL journaled by DbUp, no EF migrations |
-| a table for a feature package | [0002](./docs/adr/0002-feature-tables-ship-in-the-core-provider-set.md), the DDL ships in the core provider set or it never runs |
-| anything that creates a table | [0003](./docs/adr/0003-framework-tables-are-migrated-domain-tables-are-bootstrapped.md), which half of the split you are in |
-| a new data model | [0004](./docs/adr/0004-a-model-and-its-persistent-mapping-are-a-pair.md), and [0001](./docs/adr/0001-schema-changes-are-hand-written-sql.md) for the migration it needs |
+| anything that creates a table | [0002](./docs/adr/0002-framework-tables-are-migrated-domain-tables-are-bootstrapped.md), which half of the split you are in |
+| a new data model | [0003](./docs/adr/0003-a-model-and-its-persistent-mapping-are-a-pair.md), and [0001](./docs/adr/0001-schema-changes-are-hand-written-sql.md) for the migration it needs |
+| a table for a feature package | `Trax.Docs/adr/0009`, the DDL ships in the core provider set or it never runs |
 
-Decisions binding more than one repo live in the central corpus at `Trax.Docs/adr/`, which
-[its index](../Trax.Docs/adr/README.md) lists by repo. The ones that reach here are exact
-version pinning, the dependency direction, and the test conventions below.
+Decisions binding more than one repo live in the central corpus at `Trax.Docs/adr/`, whose
+index lists them by repo. Eight of them name `effect`: executable guards, exact version
+pinning, the dependency direction, the three test conventions (FluentAssertions, no
+`[Ignore]`, no fixed delays), the canonical train name being the interface FullName, and
+the documentation lints. In a workspace checkout the index is at
+`../Trax.Docs/adr/README.md`; that path does not resolve on GitHub, because it crosses a
+repository boundary.
 
 ## When your change makes a decision
 
@@ -45,10 +49,14 @@ not to record. The format is
 
 ## Guards
 
-`tests/Trax.Effect.Tests.Meta/` holds the convention guards. Nine of the thirteen are copies
-shared with the other repos and enforce workspace-wide rules; the repo-specific ones are
-`MigrationsIntegrityTests`, `ModelPersistentPairingTests`, `BuilderPartialSplitTests` and
-`TraxPinLockstepTests`.
+`tests/Trax.Effect.Tests.Meta/` holds the convention guards. Eleven of the thirteen are
+shared with other repos and enforce workspace-wide rules: nine appear in all eight code
+repos, `TraxPinLockstepTests` in five and `BuilderPartialSplitTests` in three. Only
+`MigrationsIntegrityTests` and `ModelPersistentPairingTests` are unique to this repo.
+
+The census (every guard credited to an ADR or explicitly opted out) is **not** switched on
+here yet. Trax.Docs runs it over its own guards; this repo will once the shared copies carry
+citations of the central ADRs they enforce.
 
 `tests/Trax.Effect.StateMachine.Persistence.Integration/MigrationSchemaTests.cs` is the
 model-versus-DDL drift guard and needs a live Postgres. `docker compose up -d` provides one.

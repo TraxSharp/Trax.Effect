@@ -1,11 +1,12 @@
 namespace Trax.Effect.Tests.Meta.Tests;
 
 /// <summary>
-/// Every Persistent mapping has the model it maps.
+/// A model and its Persistent mapping exist as a pair.
 ///
-/// <para>One direction only: a model with no table is normal, a table with no model is not.</para>
+/// <para>Both directions are checked. A model with no mapping must be listed in
+/// ModelsWithoutPersistent with its reason; a mapping with no model is always an error.</para>
 ///
-/// <para>Enforces <c>docs/adr/0004-a-model-and-its-persistent-mapping-are-a-pair.md</c>.</para>
+/// <para>Enforces <c>docs/adr/0003-a-model-and-its-persistent-mapping-are-a-pair.md</c>.</para>
 /// </summary>
 [TestFixture]
 public class ModelPersistentPairingTests
@@ -108,7 +109,7 @@ public class ModelPersistentPairingTests
                 "Every <Entity>.cs in Trax.Effect/Models/<Entity>/ must have a matching "
                     + "Persistent<Entity>.cs in Trax.Effect.Data/Models/<Entity>/, OR be added to "
                     + "ModelsWithoutPersistent with a justification. See "
-                    + "docs/adr/0004-a-model-and-its-persistent-mapping-are-a-pair.md. Orphans:\n  "
+                    + "docs/adr/0003-a-model-and-its-persistent-mapping-are-a-pair.md. Orphans:\n  "
                     + string.Join("\n  ", orphans)
             );
     }

@@ -43,4 +43,6 @@ model's properties passes.
 
 ## Changelog
 
+- **2026-09-11**: Renumbered from 0004 when the feature-tables decision moved to the
+  central corpus.
 - **2026-09-11**: Recorded.

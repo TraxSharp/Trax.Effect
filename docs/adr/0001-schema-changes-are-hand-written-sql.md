@@ -9,7 +9,9 @@ status: accepted
 Every Trax table is created by a numbered SQL file at
 `Trax.Effect.Data.<Provider>/Migrations/<NNN>_<name>.sql`, embedded via a csproj glob and
 applied by DbUp at DI-registration time, inside `UsePostgres(...)` / `UseSqlite(...)`. EF
-Core migrations are not used. `SkipMigrations()` opts out for an externally managed schema.
+Core migrations are not used. `SkipMigrations()` opts out for an externally managed schema,
+though it is declared only in the Postgres package: `UseSqlite` honours the flag but a
+Sqlite-only host has no way to set it.
 
 The two provider sets are **independent and numbered separately**. Postgres is at `040`,
 Sqlite at `006`, and each must be gapless from `001` in its own folder. A table that must
@@ -39,11 +41,11 @@ that cannot reach its database fails at startup, which is the intended moment.
 
 **The DDL column names must match the EF `[Column(...)]` names exactly**, because the
 stores query by those names and nothing reconciles the two automatically. That drift is
-what [0003](./0003-framework-tables-are-migrated-domain-tables-are-bootstrapped.md) is about.
+what [0002](./0002-framework-tables-are-migrated-domain-tables-are-bootstrapped.md) is about.
 
 **The runner scans exactly one assembly**, `typeof(AssemblyMarker).Assembly`. There is no
-cross-assembly discovery, which is why
-[0002](./0002-feature-tables-ship-in-the-core-provider-set.md) exists.
+cross-assembly discovery, which is why a feature package's DDL must ship here. That one
+binds Trax.Api as well, so it lives in the central corpus as `Trax.Docs/adr/0009`.
 
 ## Exemplars
 
@@ -57,4 +59,6 @@ model. The naming and numbering are checkable; the contents are not.
 
 ## Changelog
 
+- **2026-09-11**: Corrected the SkipMigrations claim: it ships only in the Postgres
+  package, so a Sqlite-only host cannot call it.
 - **2026-09-11**: Recorded.
