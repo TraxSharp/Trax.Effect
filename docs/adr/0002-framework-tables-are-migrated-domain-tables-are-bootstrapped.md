@@ -65,8 +65,4 @@ stress fixtures gate on an opt-in environment variable, which is a different thi
 
 ## Changelog
 
-- **2026-09-11**: Corrected the coverage claim, the scope of the swallowed exception, and the pattern named as the fix.
-- **2026-09-11**: Corrected two overstatements an audit found: Trax tables are built with
-  EnsureCreated in several test fixtures, and MigrationSchemaTests fails without Postgres
-  rather than skipping.
 - **2026-09-11**: Recorded.

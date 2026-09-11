@@ -64,7 +64,4 @@ tables (see [0002](./0002-framework-tables-are-migrated-domain-tables-are-bootst
 
 ## Changelog
 
-- **2026-09-11**: Corrected two overstatements: SkipMigrations is reachable on Sqlite, and the migration contents are tested further than the ADR claimed.
-- **2026-09-11**: Corrected the SkipMigrations claim: it ships only in the Postgres
-  package, so a Sqlite-only host cannot call it.
 - **2026-09-11**: Recorded.

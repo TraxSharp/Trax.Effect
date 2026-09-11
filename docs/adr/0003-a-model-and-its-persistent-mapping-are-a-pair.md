@@ -9,7 +9,7 @@ status: accepted
 A data model is two files in two projects: the provider-agnostic base at
 `Trax.Effect/Models/<Entity>/<Entity>.cs`, and the EF mapping at
 `Trax.Effect.Data/Models/<Entity>/Persistent<Entity>.cs`. Neither ships without the other,
-except where the pairing genuinely does not apply.
+except for the two cases the guard lists.
 
 ## Status
 
@@ -43,7 +43,4 @@ model's properties passes.
 
 ## Changelog
 
-- **2026-09-11**: Corrected the count: the DbSet is declared in both the context and its interface.
-- **2026-09-11**: Renumbered from 0004 when the feature-tables decision moved to the
-  central corpus.
 - **2026-09-11**: Recorded.
