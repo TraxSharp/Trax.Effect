@@ -108,3 +108,4 @@ jobs:
         uses: TraxSharp/Trax.Docs/.github/actions/adr-guard@100571e85b3d771a55b5f3f3e2b486f612f2be0a
         with:
           known-areas: migrations,providers,data-model,testing,platform
+          census-root: tests/Trax.Effect.Tests.Meta
