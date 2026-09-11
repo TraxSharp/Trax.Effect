@@ -22,12 +22,12 @@ if your work contradicts one, say so rather than silently overriding it.
 | a table for a feature package | `Trax.Docs/adr/0009`, the DDL ships in the core provider set or it never runs |
 
 Decisions binding more than one repo live in the central corpus at `Trax.Docs/adr/`, whose
-index lists them by repo. Eight of them name `effect`: executable guards, exact version
-pinning, the dependency direction, the three test conventions (FluentAssertions, no
-`[Ignore]`, no fixed delays), the canonical train name being the interface FullName, and
-the documentation lints. In a workspace checkout the index is at
-`../Trax.Docs/adr/README.md`; that path does not resolve on GitHub, because it crosses a
-repository boundary.
+index lists them by repo. Nine name `effect`: executable guards, exact version pinning, the
+dependency direction, the three test conventions (FluentAssertions, no `[Ignore]`, no fixed
+delays), the canonical train name being the interface FullName, the documentation lints, and
+feature-package tables shipping in the core provider migration set. In a workspace checkout
+the index is at `../Trax.Docs/adr/README.md`; that path does not resolve on GitHub, because
+it crosses a repository boundary.
 
 ## When your change makes a decision
 
