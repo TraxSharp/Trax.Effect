@@ -10,8 +10,10 @@ Every Trax table is created by a numbered SQL file at
 `Trax.Effect.Data.<Provider>/Migrations/<NNN>_<name>.sql`, embedded via a csproj glob and
 applied by DbUp at DI-registration time, inside `UsePostgres(...)` / `UseSqlite(...)`. EF
 Core migrations are not used. `SkipMigrations()` opts out for an externally managed schema,
-though it is declared only in the Postgres package: `UseSqlite` honours the flag but a
-Sqlite-only host has no way to set it.
+though it is declared only in the Postgres package. `UseSqlite` honours the flag, and a
+Sqlite-only host can still set it through the underlying `MigrationsDisabled` property on the
+builder. That property is marked `[EditorBrowsable(Never)]`, so the route is undiscoverable
+rather than unavailable.
 
 The two provider sets are **independent and numbered separately**. Postgres is at `040`,
 Sqlite at `006`, and each must be gapless from `001` in its own folder. A table that must
@@ -53,12 +55,16 @@ binds Trax.Api as well, so it lives in the central corpus as `Trax.Docs/adr/0009
   sequence from 001 in each provider folder, and that every file is an embedded resource or
   covered by the wildcard.
 
-Not covered, and the gap is wide: nothing checks that the SQL is correct, that a Postgres
-migration and its Sqlite counterpart create the same shape, or that either matches the EF
-model. The naming and numbering are checkable; the contents are not.
+Not covered: nothing compares a Postgres migration against its Sqlite counterpart, so the
+two sets can drift into different shapes for the same table and no test notices. The contents
+are checked further than the naming, though not by this guard: `SqliteMigrationTests.cs` and
+`PostgresMigrationTests.cs` assert the tables and indexes a migrated database ends up with,
+and `MigrationSchemaTests.cs` compares the model against the DDL for the state machine
+tables (see [0002](./0002-framework-tables-are-migrated-domain-tables-are-bootstrapped.md)).
 
 ## Changelog
 
+- **2026-09-11**: Corrected two overstatements: SkipMigrations is reachable on Sqlite, and the migration contents are tested further than the ADR claimed.
 - **2026-09-11**: Corrected the SkipMigrations claim: it ships only in the Postgres
   package, so a Sqlite-only host cannot call it.
 - **2026-09-11**: Recorded.

@@ -22,7 +22,7 @@ if your work contradicts one, say so rather than silently overriding it.
 | a table for a feature package | `Trax.Docs/adr/0009`, the DDL ships in the core provider set or it never runs |
 
 Decisions binding more than one repo live in the central corpus at `Trax.Docs/adr/`, whose
-index lists them by repo. Nine name `effect`: executable guards, exact version pinning, the
+index lists them by repo. Ten name `effect`: executable guards, exact version pinning, the
 dependency direction, the three test conventions (FluentAssertions, no `[Ignore]`, no fixed
 delays), the canonical train name being the interface FullName, the documentation lints, and
 feature-package tables shipping in the core provider migration set. In a workspace checkout
@@ -50,8 +50,9 @@ not to record. The format is
 ## Guards
 
 `tests/Trax.Effect.Tests.Meta/` holds the convention guards. Eleven of the thirteen are
-shared with other repos and enforce workspace-wide rules: nine appear in all eight code
-repos, `TraxPinLockstepTests` in five and `BuilderPartialSplitTests` in three. Only
+shared with other repos and enforce workspace-wide rules: eight appear in all eight code
+repos, `PublicApiSurfaceTests` in the seven that publish an API surface,
+`TraxPinLockstepTests` in five and `BuilderPartialSplitTests` in three. Only
 `MigrationsIntegrityTests` and `ModelPersistentPairingTests` are unique to this repo.
 
 The census is on: every guard class under that folder is either credited to an ADR or

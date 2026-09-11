@@ -34,10 +34,10 @@ migration system.
 
 ## Consequences
 
-**The bootstrap swallows an "already exists" error on its second run.** The create script
-carries no `IF NOT EXISTS`, so the steady state is a `DbException` on the first statement,
-caught and ignored. That is intended, and it is why this is a bootstrap rather than
-something to build on.
+**The bootstrap swallows a `DbException` on its second run.** The create script carries no
+`IF NOT EXISTS`, so the steady state is an "already exists" failure on the first statement,
+caught and ignored. The catch is unfiltered, so a connectivity or permission failure is
+swallowed identically. That is why this is a bootstrap rather than something to build on.
 
 **`EnsureCreated` in a test is fine**, and several integration tests use it against
 throwaway databases. What is not fine is a Trax table whose only creation path is
@@ -52,17 +52,20 @@ throwaway databases. What is not fine is a Trax table whose only creation path i
 
 Not covered:
 
-- Only the state machine tables have this round-trip. Every other Trax table is covered by
-  the naming and sequence checks alone, so model-versus-DDL drift elsewhere is caught at
+- Only the state machine tables have this model-versus-DDL round-trip. Other tables are
+  covered by the per-provider migration tests, which assert the tables and indexes a migrated
+  database ends up with, so a column the model expects and the DDL omits is still caught at
   runtime rather than by a test.
 - **The suite requires a live Postgres and fails without one rather than skipping.** Its
   `PostgresSetup` is an assembly-wide `[SetUpFixture]` that opens a connection
   unconditionally, so even the Sqlite case fails when Postgres is absent. That contradicts
   `Trax.Docs/adr/0005-a-skipped-test-is-a-runtime-decision.md`, which binds this repo, and
-  the reachability-probe pattern the stress fixtures already use is the fix.
+  the reachability probe in `RabbitMqBroadcasterIntegrationTests.cs` is the pattern to copy. The
+stress fixtures gate on an opt-in environment variable, which is a different thing.
 
 ## Changelog
 
+- **2026-09-11**: Corrected the coverage claim, the scope of the swallowed exception, and the pattern named as the fix.
 - **2026-09-11**: Corrected two overstatements an audit found: Trax tables are built with
   EnsureCreated in several test fixtures, and MigrationSchemaTests fails without Postgres
   rather than skipping.

@@ -28,8 +28,8 @@ referenced without EF Core at all.
 metadata records rather than stored as an entity, and `JunctionMetadata` lives inside the
 metadata row's `junctions` JSON column. Both carry their reason in the exceptions set.
 
-**Adding a model is a four-place change**: the base, the persistent mapping, the DbContext,
-and a migration in each provider set.
+**Adding a model is a five-place change**: the base, the persistent mapping, the `DbSet` on
+both `DataContext` and `IDataContext`, and a migration in each provider set.
 
 ## Exemplars
 
@@ -43,6 +43,7 @@ model's properties passes.
 
 ## Changelog
 
+- **2026-09-11**: Corrected the count: the DbSet is declared in both the context and its interface.
 - **2026-09-11**: Renumbered from 0004 when the feature-tables decision moved to the
   central corpus.
 - **2026-09-11**: Recorded.
