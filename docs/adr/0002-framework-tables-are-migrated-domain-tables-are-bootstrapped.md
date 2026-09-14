@@ -55,9 +55,11 @@ Not covered:
 - The round-trip is written down only for the state machine tables. `metadata` gets an
   equivalent check incidentally: `tests/Trax.Effect.Tests.Integration` registers `UsePostgres`
   against `trax_data_tests`, so its schema is the shipped migrations and nothing else, and
-  `HostTrackingIntegrationTests` reads a whole row back through `Metadatas`, which projects
+  `HostTrackingIntegrationTests.cs` reads a whole row back through `Metadatas`, which projects
   every mapped column of `Metadata`, the entity `PersistentMetadata.OnModelCreating`
   configures. A column the model expects and the DDL omits fails that test, not at runtime.
+  The coverage is a side effect of a host-attribution test, not a guard: it asserts host
+  fields, and it is named here as prose rather than credited as an exemplar.
   Coverage of the rest is thinner than it looks. Seven of the eight `IDataContext` tables are
   emptied by the suite's cleanup, and the per-provider migration tests assert the names of
   tables and indexes, never columns, so model-versus-DDL drift on those is still caught at

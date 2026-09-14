@@ -16,8 +16,6 @@ namespace Trax.Effect.Tests.Integration.IntegrationTests;
 /// <c>PersistentMetadata.OnModelCreating</c> configures. That makes
 /// this the incidental model-versus-DDL check for the metadata table: a column the model expects
 /// and the migrations omit fails here rather than at run time.
-///
-/// <para>Enforces <c>docs/adr/0002-framework-tables-are-migrated-domain-tables-are-bootstrapped.md</c>.</para>
 /// </summary>
 [TestFixture]
 [NonParallelizable]
@@ -63,8 +61,7 @@ public class HostTrackingIntegrationTests : TestSetup
             .Be(
                 "test-host",
                 "materialising Metadata projects every mapped column, so a column the "
-                    + "model declares and the migrations omit fails here "
-                    + "(docs/adr/0002-framework-tables-are-migrated-domain-tables-are-bootstrapped.md)"
+                    + "model declares and the migrations omit fails here"
             );
         reloaded.HostEnvironment.Should().Be("lambda");
         reloaded.HostInstanceId.Should().Be("stream-abc-123");
