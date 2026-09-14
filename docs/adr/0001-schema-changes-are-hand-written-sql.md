@@ -56,12 +56,19 @@ binds Trax.Api as well, so it lives in the central corpus as `Trax.Docs/adr/0009
   covered by the wildcard.
 
 Not covered: nothing compares a Postgres migration against its Sqlite counterpart, so the
-two sets can drift into different shapes for the same table and no test notices. The contents
-are checked further than the naming, though not by this guard: `SqliteMigrationTests.cs` and
-`PostgresMigrationTests.cs` assert the tables and indexes a migrated database ends up with,
-and `MigrationSchemaTests.cs` compares the model against the DDL for the state machine
-tables (see [0002](./0002-framework-tables-are-migrated-domain-tables-are-bootstrapped.md)).
+two sets can drift into different shapes for the same table and no test notices. Contents are
+checked further than the naming, though not by this guard and not evenly across the two sets.
+`SqliteMigrationTests.cs` migrates a fresh file and asserts the eight tables and thirty-one
+indexes it ends up with, and that a second run is idempotent. `PostgresMigrationTests.cs` is
+one test asserting four index names from migration `036`, and no tables at all: forty
+migrations checked by four assertions. The bigger set is the less covered one, and that
+asymmetry is a gap rather than a decision.
+`MigrationSchemaTests.cs` compares the model against the DDL for the state machine tables
+(see [0002](./0002-framework-tables-are-migrated-domain-tables-are-bootstrapped.md)).
 
 ## Changelog
 
+- **2026-09-11**: Corrected what the per-provider migration tests assert. The Sqlite side
+  checks the migrated schema; the Postgres side checks four index names and no tables, and
+  that asymmetry is now recorded as a gap.
 - **2026-09-11**: Recorded.

@@ -52,17 +52,33 @@ throwaway databases. What is not fine is a Trax table whose only creation path i
 
 Not covered:
 
-- Only the state machine tables have this model-versus-DDL round-trip. Other tables are
-  covered by the per-provider migration tests, which assert the tables and indexes a migrated
-  database ends up with, so a column the model expects and the DDL omits is still caught at
-  runtime rather than by a test.
-- **The suite requires a live Postgres and fails without one rather than skipping.** Its
-  `PostgresSetup` is an assembly-wide `[SetUpFixture]` that opens a connection
-  unconditionally, so even the Sqlite case fails when Postgres is absent. That contradicts
-  `Trax.Docs/adr/0005-a-skipped-test-is-a-runtime-decision.md`, which binds this repo, and
-  the reachability probe in `RabbitMqBroadcasterIntegrationTests.cs` is the pattern to copy. The
-stress fixtures gate on an opt-in environment variable, which is a different thing.
+- The round-trip is written down only for the state machine tables. `metadata` gets an
+  equivalent check incidentally: `tests/Trax.Effect.Tests.Integration` registers `UsePostgres`
+  against `trax_data_tests`, so its schema is the shipped migrations and nothing else, and
+  `HostTrackingIntegrationTests` reads a whole row back through `Metadatas`, which projects
+  every mapped column of `Metadata`, the entity `PersistentMetadata.OnModelCreating`
+  configures. A column the model expects and the DDL omits fails that test, not at runtime.
+  Coverage of the rest is thinner than it looks. Seven of the eight `IDataContext` tables are
+  emptied by the suite's cleanup, and the per-provider migration tests assert the names of
+  tables and indexes, never columns, so model-versus-DDL drift on those is still caught at
+  runtime. `persisted_operation` and `persisted_operation_history` have neither: both
+  providers create them, and `SqliteMigrationTests.ExpectedTables` lists neither.
+- **These suites require a live Postgres and fail without one rather than skipping.** In
+  `tests/Trax.Effect.Tests.Integration` it is `UsePostgres` running the migrator at
+  registration time inside `[OneTimeSetUp]`; in
+  `tests/Trax.Effect.StateMachine.Persistence.Integration` it is `PostgresSetup`, an
+  assembly-wide `[SetUpFixture]` that opens a connection unconditionally, so even the Sqlite
+  case fails when Postgres is absent. That contradicts
+  `Trax.Docs/adr/0005-a-skipped-test-is-a-runtime-decision.md`, which binds this repo. The
+  pattern to copy is the reachability probe in
+  `RabbitMqBroadcasterIntegrationTests.DataChangeMessage_RoundTrips_DomainAndEventTypeAcrossTheBroker`,
+  which is the only test in that file that has one; its six siblings fail without a broker.
+  The stress fixtures gate on an opt-in environment variable, which is a different thing.
 
 ## Changelog
 
+- **2026-09-11**: Dropped the claim that `metadata` has no model-versus-DDL coverage. The
+  Postgres integration suite runs against a migration-built database and materialises the
+  whole row, so drift there fails a test. Narrowed the line to the tables genuinely left
+  uncovered, and corrected what the per-provider migration tests assert.
 - **2026-09-11**: Recorded.

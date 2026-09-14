@@ -9,6 +9,16 @@ using Trax.Effect.Tests.Integration.Fixtures;
 
 namespace Trax.Effect.Tests.Integration.IntegrationTests;
 
+/// <summary>
+/// Host attribution round-trips through a migrated database. The suite's provider is built with
+/// <c>UsePostgres</c>, so this schema comes from the shipped migrations and nothing else, and
+/// materialising the entity projects every mapped column of <c>Metadata</c>, whose mapping
+/// <c>PersistentMetadata.OnModelCreating</c> configures. That makes
+/// this the incidental model-versus-DDL check for the metadata table: a column the model expects
+/// and the migrations omit fails here rather than at run time.
+///
+/// <para>Enforces <c>docs/adr/0002-framework-tables-are-migrated-domain-tables-are-bootstrapped.md</c>.</para>
+/// </summary>
 [TestFixture]
 [NonParallelizable]
 public class HostTrackingIntegrationTests : TestSetup
@@ -48,7 +58,14 @@ public class HostTrackingIntegrationTests : TestSetup
 
         var reloaded = await context.Metadatas.AsNoTracking().FirstAsync(m => m.Id == metadata.Id);
 
-        reloaded.HostName.Should().Be("test-host");
+        reloaded
+            .HostName.Should()
+            .Be(
+                "test-host",
+                "materialising Metadata projects every mapped column, so a column the "
+                    + "model declares and the migrations omit fails here "
+                    + "(docs/adr/0002-framework-tables-are-migrated-domain-tables-are-bootstrapped.md)"
+            );
         reloaded.HostEnvironment.Should().Be("lambda");
         reloaded.HostInstanceId.Should().Be("stream-abc-123");
     }

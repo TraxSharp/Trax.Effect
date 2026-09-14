@@ -28,8 +28,9 @@ referenced without EF Core at all.
 metadata records rather than stored as an entity, and `JunctionMetadata` lives inside the
 metadata row's `junctions` JSON column. Both carry their reason in the exceptions set.
 
-**Adding a model is a five-place change**: the base, the persistent mapping, the `DbSet` on
-both `DataContext` and `IDataContext`, and a migration in each provider set.
+**Adding a model is a six-place change**: the base, the persistent mapping, the `DbSet` on
+`DataContext` and the one on `IDataContext`, and a migration in each of the two provider
+sets, which [0001](./0001-schema-changes-are-hand-written-sql.md) keeps independent.
 
 ## Exemplars
 

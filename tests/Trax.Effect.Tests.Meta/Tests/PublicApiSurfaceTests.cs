@@ -84,7 +84,7 @@ public class PublicApiSurfaceTests
                 $"public API of '{name}' must match the checked-in baseline at "
                     + $"PublicApi/{name}.received.txt. If this change is intentional, update the baseline. "
                     + "Adding, removing, or changing a public type/member is a potential breaking change. "
-                    + "CLAUDE.md > Versioning Strategy: a major version bump on NuGet is permanent."
+                    + "Trax.Docs/reference/semantic-release.md > Commit Messages: a major version bump on NuGet is permanent."
             );
     }
 }

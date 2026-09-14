@@ -2,8 +2,9 @@
 
 The effect layer: execution metadata, data contexts, effect and junction providers, the
 state machine engine, and the Postgres / Sqlite / InMemory data providers. It sits directly
-above `Trax.Core` and below everything else in the workspace, so a change here reaches every
-other Trax repo through a published package.
+above `Trax.Core`, so a change here reaches the six repos downstream of it (Trax.Mediator,
+Trax.Scheduler, Trax.Api, Trax.Dashboard, Trax.Cli and Trax.Samples) through a published
+package. Trax.Core is upstream and never sees it.
 
 This file is the entry point. It routes; it does not restate the rules.
 
@@ -24,10 +25,10 @@ if your work contradicts one, say so rather than silently overriding it.
 Decisions binding more than one repo live in the central corpus at `Trax.Docs/adr/`, whose
 index lists them by repo. Ten name `effect`: executable guards, exact version pinning, the
 dependency direction, the three test conventions (FluentAssertions, no `[Ignore]`, no fixed
-delays), the canonical train name being the interface FullName, the documentation lints, and
-feature-package tables shipping in the core provider migration set. In a workspace checkout
-the index is at `../Trax.Docs/adr/README.md`; that path does not resolve on GitHub, because
-it crosses a repository boundary.
+delays), the canonical train name being the interface FullName, the documentation lints,
+feature-package tables shipping in the core provider migration set, and the public API
+baseline. In a workspace checkout the index is at `../Trax.Docs/adr/README.md`; that path
+does not resolve on GitHub, because it crosses a repository boundary.
 
 ## When your change makes a decision
 
@@ -63,9 +64,26 @@ that reads as a deferral is not.
 `tests/Trax.Effect.StateMachine.Persistence.Integration/MigrationSchemaTests.cs` is the
 model-versus-DDL drift guard and needs a live Postgres. `docker compose up -d` provides one.
 
+This repo also **ships** guards rather than only running them, and those live outside the
+census root. `src/Trax.Effect.Data.Testing/DataLayerGuards.cs` is the data-layer guard
+engine: domain contexts derive the shared base, each one has a companion interface, each
+owns a distinct schema, and a migration-based context has no pending model changes.
+`DomainDataLayerGuardFixture.cs` next to it is the turnkey fixture a consumer subclasses to
+run all four without writing a test body. `tests/Trax.Effect.Data.Testing.Tests/` is their
+own suite, and `DomainDataLayerGuardFixtureSelfTest` there subclasses the fixture the way a
+consumer would. Changing either file changes what every consuming repo enforces, so treat
+them as published API, not as test helpers.
+
 ## Running the tests
 
 ```bash
-docker compose up -d          # Postgres and RabbitMQ for the integration suites
+docker compose up -d          # Postgres for the integration suites
 dotnet test
 ```
+
+This repo's compose file defines one service, Postgres. The RabbitMQ broadcaster suite wants
+a broker at `amqp://trax:trax123@localhost:5672/` and this repo ships nothing that starts
+one: CI provisions a `rabbitmq:4-management` service container, and locally the broker comes
+from `../Trax.Samples/docker-compose.yml`, whose `rabbitmq` service uses the same
+credentials. Without a broker only one of that file's seven tests skips itself, the one that
+wraps its `StartAsync` in a reachability probe; the other six fail on connect.

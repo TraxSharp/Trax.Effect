@@ -61,7 +61,7 @@ public class ModelPersistentPairingTests
             .Should()
             .BeEmpty(
                 "Every Persistent<Entity>.cs in Trax.Effect.Data/Models/<Entity>/ must have a matching "
-                    + "<Entity>.cs in Trax.Effect/Models/<Entity>/. CLAUDE.md > Pattern Matching > Data "
+                    + "<Entity>.cs in Trax.Effect/Models/<Entity>/. Trax.Docs/reference/project-layout.md > Data "
                     + "models requires this layout. Orphans:\n  "
                     + string.Join("\n  ", orphans)
             );
