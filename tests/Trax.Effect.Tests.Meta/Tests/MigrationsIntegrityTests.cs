@@ -8,6 +8,7 @@ namespace Trax.Effect.Tests.Meta.Tests;
 ///
 /// <para>Enforces <c>docs/adr/0001-schema-changes-are-hand-written-sql.md</c>.</para>
 /// </summary>
+[Property("adr", "docs/adr/0001-schema-changes-are-hand-written-sql.md")]
 [TestFixture]
 public class MigrationsIntegrityTests
 {

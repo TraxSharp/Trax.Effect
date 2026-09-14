@@ -8,6 +8,7 @@ namespace Trax.Effect.Tests.Meta.Tests;
 ///
 /// <para>Enforces <c>docs/adr/0003-a-model-and-its-persistent-mapping-are-a-pair.md</c>.</para>
 /// </summary>
+[Property("adr", "docs/adr/0003-a-model-and-its-persistent-mapping-are-a-pair.md")]
 [TestFixture]
 public class ModelPersistentPairingTests
 {

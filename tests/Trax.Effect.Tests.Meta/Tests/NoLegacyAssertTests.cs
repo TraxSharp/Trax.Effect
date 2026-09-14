@@ -5,6 +5,7 @@ namespace Trax.Effect.Tests.Meta.Tests;
 ///
 /// <para>Enforces <c>Trax.Docs/adr/0004-tests-assert-with-fluentassertions.md</c>.</para>
 /// </summary>
+[Property("adr", "Trax.Docs/adr/0004-tests-assert-with-fluentassertions.md")]
 [TestFixture]
 public class NoLegacyAssertTests
 {

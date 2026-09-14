@@ -18,6 +18,7 @@ namespace Trax.Effect.StateMachine.Persistence.Integration;
 ///
 /// <para>Enforces <c>docs/adr/0002-framework-tables-are-migrated-domain-tables-are-bootstrapped.md</c>.</para>
 /// </summary>
+[Property("adr", "docs/adr/0002-framework-tables-are-migrated-domain-tables-are-bootstrapped.md")]
 public class MigrationSchemaTests
 {
     private const string Maintenance =

@@ -15,6 +15,7 @@ namespace Trax.Effect.Tests.Meta.Tests;
 ///
 /// <para>Enforces <c>Trax.Docs/adr/0011-test-frameworks-stay-out-of-shipped-libraries.md</c>.</para>
 /// </summary>
+[Property("adr", "Trax.Docs/adr/0011-test-frameworks-stay-out-of-shipped-libraries.md")]
 [TestFixture]
 public class NoTestFrameworkInSrcTests
 {
