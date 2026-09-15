@@ -14,11 +14,11 @@
     <!-- Trax.* : exact CI pin, overridable by TraxLocalVersion -->
     <PackageVersion
       Include="Trax.Core"
-      Version="$([MSBuild]::ValueOrDefault('$(TraxLocalVersion)', '1.6.0'))"
+      Version="$([MSBuild]::ValueOrDefault('$(TraxLocalVersion)', '1.7.0'))"
     />
     <PackageVersion
       Include="Trax.Core.Testing"
-      Version="$([MSBuild]::ValueOrDefault('$(TraxLocalVersion)', '1.6.0'))"
+      Version="$([MSBuild]::ValueOrDefault('$(TraxLocalVersion)', '1.7.0'))"
     />
   </ItemGroup>
   <ItemGroup>
