@@ -114,7 +114,7 @@ public class CancelledOutcomePersistenceTests : TestSetup
     /// <summary>Parks until the caller's token releases it, as a cancellable downstream call would.</summary>
     private class ParkedTrain : ServiceTrain<Unit, Unit>, IParkedTrain
     {
-        protected override async Task<Either<Exception, Unit>> RunInternal(Unit input)
+        protected override async Task<Either<Exception, Unit>> Junctions()
         {
             var parked = new TaskCompletionSource(
                 TaskCreationOptions.RunContinuationsAsynchronously
@@ -126,19 +126,19 @@ public class CancelledOutcomePersistenceTests : TestSetup
             Probe.Started.TrySetResult();
             await parked.Task;
 
-            return Activate(input, Unit.Default).Resolve();
+            return Resolve();
         }
     }
 
     /// <summary>Takes no token, as a downstream SDK without cancellation support would.</summary>
     private class UninterruptibleTrain : ServiceTrain<Unit, Unit>, IUninterruptibleTrain
     {
-        protected override async Task<Either<Exception, Unit>> RunInternal(Unit input)
+        protected override async Task<Either<Exception, Unit>> Junctions()
         {
             Probe.Started.TrySetResult();
             await Probe.Downstream.Task;
 
-            return Activate(input, Unit.Default).Resolve();
+            return Resolve();
         }
     }
 
