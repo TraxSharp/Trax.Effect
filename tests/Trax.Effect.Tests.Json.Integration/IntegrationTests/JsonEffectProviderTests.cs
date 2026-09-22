@@ -63,8 +63,7 @@ public class JsonEffectProviderTests : TestSetup
 
     private class TestTrain : ServiceTrain<Unit, Unit>, ITestTrain
     {
-        protected override async Task<Either<Exception, Unit>> RunInternal(Unit input) =>
-            Activate(input).Resolve();
+        protected override async Task<Either<Exception, Unit>> Junctions() => Resolve();
     }
 
     private interface ITestTrain : IServiceTrain<Unit, Unit> { }
