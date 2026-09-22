@@ -213,7 +213,7 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
                     exception.Message
                 );
                 await this.FinishServiceTrain(result);
-                await EffectRunner.SaveChanges(CancellationToken);
+                await SaveOutcome();
 
                 if (exception is OperationCanceledException)
                 {
@@ -259,7 +259,7 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
 
             await EffectRunner.Update(Metadata);
             await this.FinishServiceTrain(result);
-            await EffectRunner.SaveChanges(CancellationToken);
+            await SaveOutcome();
 
             // Ensure output is available as serialized JSON for lifecycle hooks,
             // even when SaveTrainParameters() is not configured. Runs AFTER
@@ -316,7 +316,7 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
             );
 
             await this.FinishServiceTrain(e);
-            await EffectRunner.SaveChanges(CancellationToken);
+            await SaveOutcome();
 
             if (e is OperationCanceledException)
             {
@@ -355,6 +355,24 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
 
             throw;
         }
+    }
+
+    /// <summary>
+    /// Persists the train's terminal state.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not given the caller's token. That token is cancelled in exactly the case
+    /// this write exists to record, so handing it over would abandon the row at
+    /// <c>InProgress</c> with no <c>EndTime</c> — an execution that finished but cannot say how,
+    /// and one a scheduler's stale-in-progress reaper later rewrites to <c>Failed</c> whatever
+    /// actually happened. The outcome is the audit record of the work, not part of the work the
+    /// caller is entitled to cancel.
+    /// </remarks>
+    private Task SaveOutcome()
+    {
+        EffectRunner.AssertLoaded();
+
+        return EffectRunner.SaveChanges(CancellationToken.None);
     }
 
     public virtual async Task<TOut> Run(TIn input, Metadata metadata)
