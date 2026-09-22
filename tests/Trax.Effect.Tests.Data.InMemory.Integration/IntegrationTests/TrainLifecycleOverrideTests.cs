@@ -592,7 +592,7 @@ public class TrainLifecycleOverrideTests : TestSetup
         public Exception? FailedException { get; private set; }
         public List<string> CallOrder { get; } = [];
 
-        protected override async Task<Either<Exception, Unit>> RunInternal(Unit input) =>
+        protected override async Task<Either<Exception, Unit>> Junctions() =>
             new TrainException("Intentional train failure");
 
         protected override Task OnStarted(Metadata metadata, CancellationToken ct)
@@ -637,7 +637,7 @@ public class TrainLifecycleOverrideTests : TestSetup
         public bool CancelledCalled { get; private set; }
         public Metadata? CancelledMetadata { get; private set; }
 
-        protected override async Task<Either<Exception, Unit>> RunInternal(Unit input) =>
+        protected override async Task<Either<Exception, Unit>> Junctions() =>
             throw new OperationCanceledException("Intentional cancellation");
 
         protected override Task OnCancelled(Metadata metadata, CancellationToken ct)
@@ -666,7 +666,7 @@ public class TrainLifecycleOverrideTests : TestSetup
 
     private class ThrowingOnFailedHookTrain : ServiceTrain<Unit, Unit>, IThrowingOnFailedHookTrain
     {
-        protected override async Task<Either<Exception, Unit>> RunInternal(Unit input) =>
+        protected override async Task<Either<Exception, Unit>> Junctions() =>
             new TrainException("Intentional train failure");
 
         protected override Task OnFailed(
@@ -682,7 +682,7 @@ public class TrainLifecycleOverrideTests : TestSetup
         : ServiceTrain<Unit, Unit>,
             IThrowingOnCancelledHookTrain
     {
-        protected override async Task<Either<Exception, Unit>> RunInternal(Unit input) =>
+        protected override async Task<Either<Exception, Unit>> Junctions() =>
             throw new OperationCanceledException("Intentional cancellation");
 
         protected override Task OnCancelled(Metadata metadata, CancellationToken ct) =>
@@ -782,7 +782,7 @@ public class TrainLifecycleOverrideTests : TestSetup
         public string? CapturedInput { get; private set; }
         public TestOutputDto? CapturedOutput { get; private set; }
 
-        protected override async Task<Either<Exception, TestOutputDto>> RunInternal(string input) =>
+        protected override async Task<Either<Exception, TestOutputDto>> Junctions() =>
             new TrainException("Intentional failure");
 
         protected override Task OnFailed(

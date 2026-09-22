@@ -1950,7 +1950,7 @@ public class SqliteProviderTests : TestSetup
 
     private class FailingTrain : ServiceTrain<Unit, Unit>, IFailingTrain
     {
-        protected override async Task<Either<Exception, Unit>> RunInternal(Unit input) =>
+        protected override async Task<Either<Exception, Unit>> Junctions() =>
             new TrainException("Test failure");
     }
 

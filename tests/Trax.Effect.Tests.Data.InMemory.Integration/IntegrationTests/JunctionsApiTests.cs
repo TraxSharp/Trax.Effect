@@ -147,8 +147,8 @@ public class JunctionsApiTests : TestSetup
 
     private class RunInternalTrain : ServiceTrain<string, int>, IRunInternalTrain
     {
-        protected override Task<Either<Exception, int>> RunInternal(string input) =>
-            Activate(input).Chain<StringLengthJunction>().Resolve();
+        protected override Task<Either<Exception, int>> Junctions() =>
+            Chain<StringLengthJunction>().Resolve();
     }
 
     private interface IRunInternalTrain : IServiceTrain<string, int> { }

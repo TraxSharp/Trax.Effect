@@ -82,7 +82,9 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
     /// Returns <c>default</c> before the train has been run.
     /// </summary>
     protected TIn TrainInput =>
-        Metadata is not null && Metadata.GetInputObject() is TIn typed ? typed : default!;
+        IsDeclaringChain ? throw new ChainDeclarationException(TrainName, nameof(TrainInput))
+        : Metadata is not null && Metadata.GetInputObject() is TIn typed ? typed
+        : default!;
 
     /// <summary>
     /// Gets the typed output produced by this train. Set after a successful run, so it is
@@ -91,7 +93,9 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
     /// because the train either hasn't run yet, failed before producing output, or was cancelled.
     /// </summary>
     protected TOut TrainOutput =>
-        Metadata is not null && Metadata.GetOutputObject() is TOut typed ? typed : default!;
+        IsDeclaringChain ? throw new ChainDeclarationException(TrainName, nameof(TrainOutput))
+        : Metadata is not null && Metadata.GetOutputObject() is TOut typed ? typed
+        : default!;
 
     /// <summary>
     /// Gets the canonical train name. Prefers the interface name set at registration time
@@ -396,25 +400,11 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
     }
 
     /// <summary>
-    /// The core implementation method that executes the train's logic.
-    /// Override this for full control over the railway pipeline (advanced).
-    /// If not overridden, the default implementation calls Junctions().
+    /// Supplies the container alongside the train, so junctions named by the chain resolve
+    /// through dependency injection rather than needing a parameterless constructor.
     /// </summary>
-    protected override async Task<Either<Exception, TOut>> RunInternal(TIn input)
-    {
-        TrainMonad = new Monad<TIn, TOut>(this, ServiceProvider!, CancellationToken).Activate(
-            input
-        );
-
-        try
-        {
-            return await Junctions().ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            return ex;
-        }
-    }
+    protected override Monad<TIn, TOut> NewMonad() =>
+        new(this, ServiceProvider!, CancellationToken);
 
     /// <summary>
     /// Creates a composable Monad helper with ServiceProvider for junction DI.

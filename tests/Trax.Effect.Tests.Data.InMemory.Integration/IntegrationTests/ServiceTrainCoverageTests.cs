@@ -132,7 +132,7 @@ public class ServiceTrainCoverageTests : TestSetup
 
     private class UnserializableOutputTrain : ServiceTrain<Unit, Cyclic>, IUnserializableOutputTrain
     {
-        protected override async Task<Either<Exception, Cyclic>> RunInternal(Unit input)
+        protected override async Task<Either<Exception, Cyclic>> Junctions()
         {
             var c = new Cyclic();
             c.Self = c;

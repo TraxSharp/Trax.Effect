@@ -1112,6 +1112,7 @@ namespace Trax.Effect.Services.ServiceTrain
         protected TOut TrainOutput { get; }
         public new Trax.Core.Monad.Monad<TIn, TOut> Activate(TIn input, params object[] otherInputs) { }
         public void Dispose() { }
+        protected override Trax.Core.Monad.Monad<TIn, TOut> NewMonad() { }
         protected virtual System.Threading.Tasks.Task OnCancelled(Trax.Effect.Models.Metadata.Metadata metadata, System.Threading.CancellationToken ct) { }
         protected virtual System.Threading.Tasks.Task OnCompleted(Trax.Effect.Models.Metadata.Metadata metadata, System.Threading.CancellationToken ct) { }
         protected virtual System.Threading.Tasks.Task OnFailed(Trax.Effect.Models.Metadata.Metadata metadata, System.Exception exception, System.Threading.CancellationToken ct) { }
@@ -1120,7 +1121,6 @@ namespace Trax.Effect.Services.ServiceTrain
         public override System.Threading.Tasks.Task<TOut> Run(TIn input, System.Threading.CancellationToken cancellationToken = default) { }
         public virtual System.Threading.Tasks.Task<TOut> Run(TIn input, Trax.Effect.Models.Metadata.Metadata metadata) { }
         public virtual System.Threading.Tasks.Task<TOut> Run(TIn input, Trax.Effect.Models.Metadata.Metadata metadata, System.Threading.CancellationToken cancellationToken) { }
-        protected override System.Threading.Tasks.Task<LanguageExt.Either<System.Exception, TOut>> RunInternal(TIn input) { }
     }
 }
 namespace Trax.Effect.Services.TrainEventBroadcaster
