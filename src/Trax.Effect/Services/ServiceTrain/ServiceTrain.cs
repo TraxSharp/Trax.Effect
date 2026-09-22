@@ -206,7 +206,7 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
             }
 
             Logger?.LogTrace("Running Train: ({TrainName})", TrainName);
-            var result = await RunInternal(input);
+            var result = await RunEither(input);
 
             if (result.IsLeft)
             {
@@ -405,21 +405,6 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
     /// </summary>
     protected override Monad<TIn, TOut> NewMonad() =>
         new(this, ServiceProvider!, CancellationToken);
-
-    /// <summary>
-    /// Creates a composable Monad helper with ServiceProvider for junction DI.
-    /// Overrides the base Train.Activate to inject the ServiceProvider, enabling
-    /// automatic dependency resolution for junctions via the Chain API.
-    /// </summary>
-    /// <param name="input">The primary input for the train</param>
-    /// <param name="otherInputs">Additional objects to store in the Monad's Memory</param>
-    /// <returns>A Monad instance for method chaining with DI support</returns>
-    public new Monad<TIn, TOut> Activate(TIn input, params object[] otherInputs) =>
-        new Monad<TIn, TOut>(this, ServiceProvider!, CancellationToken).Activate(
-            input,
-            otherInputs
-        );
-
     public void Dispose()
     {
         if (Metadata != null)
