@@ -17,7 +17,7 @@ internal class SqliteSqlDialect : ISqlDialect
     public string ClaimWorkQueueEntry() =>
         """
             SELECT * FROM work_queue
-            WHERE id = {0} AND status = 'queued'
+            WHERE id = {0} AND status = 'queued' AND confirmed_at IS NOT NULL
             """;
 
     public string DequeueBackgroundJobs() =>

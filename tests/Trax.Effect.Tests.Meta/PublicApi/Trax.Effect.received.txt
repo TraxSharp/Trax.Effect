@@ -839,6 +839,7 @@ namespace Trax.Effect.Models.WorkQueue.DTOs
     {
         public CreateWorkQueue() { }
         public long? DeadLetterId { get; set; }
+        public bool DeferPromotion { get; set; }
         public string? Input { get; set; }
         public string? InputTypeName { get; set; }
         public long? ManifestId { get; set; }
@@ -855,6 +856,8 @@ namespace Trax.Effect.Models.WorkQueue
         public const int MinPriority = 0;
         [System.Text.Json.Serialization.JsonConstructor]
         public WorkQueue() { }
+        [System.ComponentModel.DataAnnotations.Schema.Column("confirmed_at")]
+        public System.DateTime? ConfirmedAt { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("created_at")]
         public System.DateTime CreatedAt { get; set; }
         public Trax.Effect.Models.DeadLetter.DeadLetter? DeadLetter { get; set; }
@@ -1089,6 +1092,7 @@ namespace Trax.Effect.Services.ServiceTrain
         protected ServiceTrain() { }
         [System.Text.Json.Serialization.JsonIgnore]
         public string? CanonicalName { get; set; }
+        protected virtual bool DeferQueuePromotion { get; }
         [System.Text.Json.Serialization.JsonIgnore]
         [Trax.Effect.Attributes.Inject]
         public Trax.Effect.Services.EffectRunner.IEffectRunner? EffectRunner { get; set; }

@@ -159,6 +159,21 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
     /// correlate with the eventual run (the run executes under the same ExternalId). <c>Id</c>,
     /// <c>ManifestId</c>, and <c>ScheduledTime</c> are unset because no run exists yet.
     /// </remarks>
+    /// <summary>
+    /// Whether this train's queue entry should be held unconfirmed until its <see cref="OnQueue"/>
+    /// hook has committed. Defaults to false: the entry is dispatchable the moment it is written.
+    /// </summary>
+    /// <remarks>
+    /// Override to true when the hook's side-effect lives outside Trax's own data context — a
+    /// separate <c>DbContext</c> has its own connection and therefore its own transaction, so it
+    /// cannot be rolled back with the entry. Deferring promotion does not make the two atomic, but
+    /// it makes a failure between them findable: the entry is left unconfirmed instead of the
+    /// side-effect being left with no entry.
+    ///
+    /// Has no effect unless <see cref="OnQueue"/> is also overridden.
+    /// </remarks>
+    protected virtual bool DeferQueuePromotion => false;
+
     protected virtual Task OnQueue(Metadata metadata, CancellationToken ct) => Task.CompletedTask;
 
     /// <summary>
@@ -405,6 +420,7 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
     /// </summary>
     protected override Monad<TIn, TOut> NewMonad() =>
         new(this, ServiceProvider!, CancellationToken);
+
     public void Dispose()
     {
         if (Metadata != null)

@@ -60,6 +60,21 @@ public class WorkQueue : IModel
     public DateTime CreatedAt { get; set; }
 
     /// <summary>
+    /// When this entry became eligible for dispatch, or null while it is still being staged.
+    /// </summary>
+    /// <remarks>
+    /// Normally set at creation, so an entry is dispatchable the moment it is committed. A train
+    /// that defers promotion (see <c>ServiceTrain.DeferQueuePromotion</c>) is instead committed
+    /// with a null value, its <c>OnQueue</c> hook is run, and only then is this stamped in a second
+    /// commit. That makes a crash between the two detectable: the entry is left unconfirmed rather
+    /// than the hook's side-effect being left with no entry at all.
+    ///
+    /// Dispatch gates on this, so an unconfirmed entry is never claimed.
+    /// </remarks>
+    [Column("confirmed_at")]
+    public DateTime? ConfirmedAt { get; set; }
+
+    /// <summary>
     /// When this entry was picked up by the dispatcher.
     /// </summary>
     [Column("dispatched_at")]
@@ -153,6 +168,7 @@ public class WorkQueue : IModel
             DeadLetterId = dto.DeadLetterId,
             Status = WorkQueueStatus.Queued,
             CreatedAt = DateTime.UtcNow,
+            ConfirmedAt = dto.DeferPromotion ? null : DateTime.UtcNow,
         };
     }
 

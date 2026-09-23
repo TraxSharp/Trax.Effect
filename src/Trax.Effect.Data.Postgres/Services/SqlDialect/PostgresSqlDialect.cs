@@ -14,7 +14,7 @@ internal class PostgresSqlDialect : ISqlDialect
     public string ClaimWorkQueueEntry() =>
         """
             SELECT * FROM trax.work_queue
-            WHERE id = {0} AND status = 'queued'
+            WHERE id = {0} AND status = 'queued' AND confirmed_at IS NOT NULL
             FOR UPDATE SKIP LOCKED
             """;
 

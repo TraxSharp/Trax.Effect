@@ -40,4 +40,15 @@ public class CreateWorkQueue
     /// Optional dead letter ID when this entry is created by requeuing a dead letter.
     /// </summary>
     public long? DeadLetterId { get; set; }
+
+    /// <summary>
+    /// Leaves the entry unconfirmed, and therefore undispatchable, until something promotes it.
+    /// Defaults to false, so an entry is dispatchable as soon as it is committed.
+    /// </summary>
+    /// <remarks>
+    /// Set this when a side-effect must be durable before the work may run — the enqueue then
+    /// commits the entry, performs the side-effect, and promotes the entry in a second commit, so
+    /// a crash in between strands a detectable row rather than an invisible side-effect.
+    /// </remarks>
+    public bool DeferPromotion { get; set; }
 }
