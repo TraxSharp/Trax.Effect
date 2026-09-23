@@ -674,6 +674,8 @@ namespace Trax.Effect.Models.Metadata
         public string? Executor { get; }
         [System.ComponentModel.DataAnnotations.Schema.Column("external_id")]
         public string ExternalId { get; set; }
+        [System.ComponentModel.DataAnnotations.Schema.Column("failure_class")]
+        public Trax.Core.Exceptions.FailureClass FailureClass { get; }
         [System.ComponentModel.DataAnnotations.Schema.Column("failure_exception")]
         public string? FailureException { get; }
         [System.ComponentModel.DataAnnotations.Schema.Column("failure_junction")]
@@ -1025,6 +1027,13 @@ namespace Trax.Effect.Services.EffectRunner
         System.Threading.Tasks.Task SaveChanges(System.Threading.CancellationToken cancellationToken);
         System.Threading.Tasks.Task Track(Trax.Effect.Models.IModel model);
         System.Threading.Tasks.Task Update(Trax.Effect.Models.IModel model);
+    }
+}
+namespace Trax.Effect.Services.FailureClassifier
+{
+    public interface IFailureClassifier
+    {
+        Trax.Core.Exceptions.FailureClass? Classify(System.Exception exception);
     }
 }
 namespace Trax.Effect.Services.JunctionEffectProvider

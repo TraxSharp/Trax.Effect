@@ -1,6 +1,7 @@
 using System.Text.Json;
 using LanguageExt;
 using LanguageExt.UnsafeValueAccess;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Trax.Core.Exceptions;
 using Trax.Core.Extensions;
@@ -8,6 +9,7 @@ using Trax.Effect.Enums;
 using Trax.Effect.Models.Host;
 using Trax.Effect.Models.Metadata;
 using Trax.Effect.Models.Metadata.DTOs;
+using Trax.Effect.Services.FailureClassifier;
 using Trax.Effect.Services.ServiceTrain;
 
 namespace Trax.Effect.Extensions;
@@ -123,10 +125,54 @@ internal static class ServiceTrainExtensions
         serviceTrain.Metadata.JunctionStartedAt = null;
 
         if (failureReason != null)
+        {
+            // Classify before recording, so the class lands on the metadata with the rest of the
+            // failure and travels with the exception data if this run is reported somewhere else.
+            // Only real failures are classified — a cancellation is not one.
+            if (resultState == TrainState.Failed)
+                Classify(serviceTrain, failureReason);
+
             serviceTrain.Metadata.AddException(failureReason);
+        }
 
         await serviceTrain.EffectRunner.Update(serviceTrain.Metadata);
 
         return Unit.Default;
+    }
+
+    /// <summary>
+    /// Asks the registered <see cref="IFailureClassifier"/> what kind of failure this was and
+    /// writes the answer onto the exception's structured data, where
+    /// <c>Metadata.AddException</c> picks it up.
+    /// </summary>
+    /// <remarks>
+    /// A classifier is optional, and one that throws must not mask the failure it was asked about:
+    /// its exception is logged and the failure stays unclassified.
+    /// </remarks>
+    private static void Classify<TIn, TOut>(
+        ServiceTrain<TIn, TOut> serviceTrain,
+        Exception failureReason
+    )
+    {
+        try
+        {
+            var classifier = serviceTrain.ServiceProvider?.GetService<IFailureClassifier>();
+            if (classifier is null)
+                return;
+
+            if (classifier.Classify(failureReason) is not { } failureClass)
+                return;
+
+            if (failureReason.Data["TrainExceptionData"] is TrainExceptionData data)
+                data.FailureClass = failureClass;
+        }
+        catch (Exception ex)
+        {
+            serviceTrain.Logger?.LogWarning(
+                ex,
+                "Failure classifier threw for train ({TrainName}); recording the failure as unclassified.",
+                serviceTrain.TrainName
+            );
+        }
     }
 }
