@@ -1,6 +1,7 @@
 using FluentAssertions;
 using LanguageExt;
 using Microsoft.Extensions.DependencyInjection;
+using Trax.Core.Extensions;
 using Trax.Effect.Enums;
 using Trax.Effect.Extensions;
 using Trax.Effect.Services.ServiceTrain;
@@ -27,6 +28,7 @@ public class JsonEffectProviderTests : TestSetup
         await trainTwo.Run(Unit.Default);
 
         // Assert
+        train.Metadata.AssertLoaded();
         train.Metadata.Name.Should().Be(typeof(ITestTrain).FullName);
         train.Metadata.FailureException.Should().BeNullOrEmpty();
         train.Metadata.FailureReason.Should().BeNullOrEmpty();
