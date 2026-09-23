@@ -125,6 +125,23 @@ public class EnqueueContextAccessorTests
     }
 
     [Test]
+    public void An_accessor_from_another_scope_sees_the_same_enqueue()
+    {
+        var entered = new EnqueueContextAccessor();
+        var elsewhere = new EnqueueContextAccessor();
+        var context = AContext();
+
+        using (entered.Enter(context))
+            elsewhere
+                .Current.Should()
+                .BeSameAs(
+                    context,
+                    "a singleton train, or a repository resolved from another scope, reads the "
+                        + "enqueue running on this async flow"
+                );
+    }
+
+    [Test]
     public void Disposing_the_scope_twice_is_harmless()
     {
         var accessor = new EnqueueContextAccessor();
