@@ -42,6 +42,13 @@ internal class SqliteSqlDialect : ISqlDialect
             LIMIT {1}
             """;
 
+    /// <remarks>
+    /// Only confirmed entries are candidates, and a manual entry whose subject already has a run
+    /// in flight is left out. The claim refuses both anyway, but a candidate the claim will refuse
+    /// still takes a capacity slot in the cycle that loaded it, so letting them through here lets
+    /// a backlog for one subject, or a few stranded staged entries, starve everything else.
+    /// Manifest entries carry no subject, so only the manual branch needs the subject check.
+    /// </remarks>
     public string LoadGroupFairQueuedJobs() =>
         """
             WITH ranked AS (
@@ -54,12 +61,25 @@ internal class SqliteSqlDialect : ISqlDialect
                 JOIN manifest m ON wq.manifest_id = m.id
                 JOIN manifest_group mg ON m.manifest_group_id = mg.id
                 WHERE wq.status = 'queued'
+                  AND wq.confirmed_at IS NOT NULL
                   AND mg.is_enabled = 1
                   AND (wq.scheduled_at IS NULL OR wq.scheduled_at <= datetime('now'))
             )
             SELECT wq.* FROM work_queue wq
             WHERE wq.id IN (SELECT ranked.id FROM ranked WHERE ranked.rn <= {0})
                OR (wq.manifest_id IS NULL AND wq.status = 'queued'
-                   AND (wq.scheduled_at IS NULL OR wq.scheduled_at <= datetime('now')))
+                   AND wq.confirmed_at IS NOT NULL
+                   AND (wq.scheduled_at IS NULL OR wq.scheduled_at <= datetime('now'))
+                   AND (
+                     wq.subject_key IS NULL
+                     OR NOT EXISTS (
+                         SELECT 1
+                         FROM work_queue b
+                         JOIN metadata bm ON bm.id = b.metadata_id
+                         WHERE b.subject_key = wq.subject_key
+                           AND b.status = 'dispatched'
+                           AND bm.train_state IN ('pending', 'in_progress')
+                     )
+                   ))
             """;
 }

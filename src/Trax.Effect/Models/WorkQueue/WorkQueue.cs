@@ -60,14 +60,20 @@ public class WorkQueue : IModel
     public DateTime CreatedAt { get; set; }
 
     /// <summary>
-    /// Identifies what this work touches, so entries naming the same subject are not run at the
-    /// same time. Null — the default — means the entry is not serialized against anything.
+    /// Identifies what this work touches, so an entry is not dispatched while another entry naming
+    /// the same subject has a run in flight. Null, the default, means the entry is not serialized
+    /// against anything.
     /// </summary>
     /// <remarks>
     /// Supplied by the train through <c>ServiceTrain.QueueSubjectKey</c>. It is an opaque string:
-    /// Trax compares it and nothing else, so its shape is the consumer's to decide. A record
-    /// identity is the usual choice, because the systems that need this are the ones where two
-    /// concurrent writes to one record are resolved by last-write-wins.
+    /// Trax compares it exactly and nothing else, so its shape is the consumer's to decide. A
+    /// record identity is the usual choice, because the systems that need this are the ones where
+    /// two concurrent writes to one record are resolved by last-write-wins.
+    ///
+    /// "In flight" ends when the run reaches a terminal state, including when the scheduler's
+    /// stale-run reaper fails a run that has been in progress longer than its timeout. A run that
+    /// is still working past that timeout no longer holds its subject. Only queued work is
+    /// serialized; a synchronous run through the mediator does not consult the key.
     /// </remarks>
     [Column("subject_key")]
     public string? SubjectKey { get; set; }
