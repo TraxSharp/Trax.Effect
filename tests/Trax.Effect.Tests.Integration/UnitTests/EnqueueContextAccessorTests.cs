@@ -58,19 +58,64 @@ public class EnqueueContextAccessorTests
     }
 
     [Test]
-    public void Entering_twice_without_leaving_throws()
+    public void An_inner_enqueue_sees_its_own_context_and_restores_the_outer_one()
     {
         var accessor = new EnqueueContextAccessor();
-        using var _ = accessor.Enter(AContext());
+        var outer = AContext();
+        var inner = AContext();
 
-        var act = () => accessor.Enter(AContext());
+        using (accessor.Enter(outer))
+        {
+            using (accessor.Enter(inner))
+                accessor.Current.Should().BeSameAs(inner);
 
-        act.Should()
-            .Throw<InvalidOperationException>()
-            .WithMessage(
-                "*do not nest*",
-                "silently replacing the context would strand whatever the outer enqueue tracked"
+            accessor
+                .Current.Should()
+                .BeSameAs(
+                    outer,
+                    "an OnQueue hook that enqueues another train must get its own context back "
+                        + "for the rest of its work"
+                );
+        }
+
+        accessor.Current.Should().BeNull();
+    }
+
+    [Test]
+    public async Task Concurrent_enqueues_on_one_accessor_each_see_their_own_context()
+    {
+        var accessor = new EnqueueContextAccessor();
+        var first = AContext();
+        var second = AContext();
+        var bothEntered = new TaskCompletionSource();
+        var entered = 0;
+
+        async Task<IDataContext?> Enqueue(IDataContext context)
+        {
+            using (accessor.Enter(context))
+            {
+                if (Interlocked.Increment(ref entered) == 2)
+                    bothEntered.SetResult();
+
+                // Both flows are inside Enter at once before either reads.
+                await bothEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                return accessor.Current;
+            }
+        }
+
+        var seen = await Task.WhenAll(
+            Task.Run(() => Enqueue(first)),
+            Task.Run(() => Enqueue(second))
+        );
+
+        seen[0]
+            .Should()
+            .BeSameAs(
+                first,
+                "a scope shared by concurrent enqueues, such as a Blazor circuit, must not hand "
+                    + "one enqueue's context to the other"
             );
+        seen[1].Should().BeSameAs(second);
     }
 
     [Test]

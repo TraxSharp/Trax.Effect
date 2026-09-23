@@ -9,8 +9,16 @@ namespace Trax.Effect.Data.Services.EnqueueContext;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <see cref="Current"/> is non-null only while <c>OnQueue</c> is running. Everywhere else it is
-/// null, and a consumer must fall back to its own context.
+/// <see cref="Current"/> is non-null only while <c>OnQueue</c> is running for a train that does
+/// not defer promotion. Everywhere else it is null, and a consumer must fall back to its own
+/// context. That includes a train with <c>DeferQueuePromotion</c> set: its entry is committed
+/// before the hook runs, so there is no open enqueue transaction for the hook to join, and
+/// deferral exists for hooks that write elsewhere.
+/// </para>
+/// <para>
+/// The value flows with the async call. Concurrent enqueues on one scope each see their own, and
+/// an enqueue started from inside a hook sees its own context, in its own transaction, until it
+/// returns.
 /// </para>
 /// <para>
 /// Writes tracked on <see cref="Current"/> are saved and committed by the enqueue, so a hook that
@@ -31,8 +39,9 @@ public interface IEnqueueContextAccessor
     IDataContext? Current { get; }
 
     /// <summary>
-    /// Makes <paramref name="context"/> the ambient enqueue context until the returned scope is
-    /// disposed. Called by the framework's enqueue path; consumers read <see cref="Current"/>.
+    /// Makes <paramref name="context"/> the ambient enqueue context for the current async flow until
+    /// the returned scope is disposed, which restores whatever was current before. Called by the
+    /// framework's enqueue path; consumers read <see cref="Current"/>.
     /// </summary>
     IDisposable Enter(IDataContext context);
 }

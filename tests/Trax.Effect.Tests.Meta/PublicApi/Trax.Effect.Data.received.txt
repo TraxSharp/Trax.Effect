@@ -286,12 +286,14 @@ namespace Trax.Effect.Data.Services.WorkQueuePromotion
 {
     public interface IWorkQueuePromotion
     {
+        System.Threading.Tasks.Task<int> CancelStaleAsync(System.TimeSpan olderThan, System.Threading.CancellationToken cancellationToken);
         System.Threading.Tasks.Task<bool> PromoteAsync(long workQueueId, System.Threading.CancellationToken cancellationToken);
         System.Threading.Tasks.Task<int> PromoteStaleAsync(System.TimeSpan olderThan, System.Threading.CancellationToken cancellationToken);
     }
     public class WorkQueuePromotion : Trax.Effect.Data.Services.WorkQueuePromotion.IWorkQueuePromotion
     {
         public WorkQueuePromotion(Trax.Effect.Data.Services.IDataContextFactory.IDataContextProviderFactory contextFactory) { }
+        public System.Threading.Tasks.Task<int> CancelStaleAsync(System.TimeSpan olderThan, System.Threading.CancellationToken cancellationToken) { }
         public System.Threading.Tasks.Task<bool> PromoteAsync(long workQueueId, System.Threading.CancellationToken cancellationToken) { }
         public System.Threading.Tasks.Task<int> PromoteStaleAsync(System.TimeSpan olderThan, System.Threading.CancellationToken cancellationToken) { }
     }
