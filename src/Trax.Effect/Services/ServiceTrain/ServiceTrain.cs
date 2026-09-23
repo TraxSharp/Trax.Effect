@@ -268,8 +268,23 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
                 exception.GetType(),
                 exception.Message
             );
-            await this.FinishServiceTrain(result);
-            await SaveOutcome();
+
+            // The train's own failure is what the caller needs. If recording it fails too, that
+            // is logged and the failure still propagates, with its hooks; the stale-run reaper
+            // fails a row left in progress.
+            try
+            {
+                await this.FinishServiceTrain(result);
+                await SaveOutcome();
+            }
+            catch (Exception recordEx)
+            {
+                Logger?.LogError(
+                    recordEx,
+                    "Could not record the failure of train ({TrainName}); the original failure still propagates.",
+                    TrainName
+                );
+            }
 
             if (exception is OperationCanceledException)
             {

@@ -161,6 +161,12 @@ public class FailureClassificationTests : TestSetup
                 "a failure with no junction context carries no exception data to write the class "
                     + "onto, so the class is recorded on the run directly"
             );
+        train
+            .SeenOnExceptionData.Should()
+            .Be(
+                FailureClass.Conflict,
+                "the class has to ride on the exception too, or a remote worker cannot report it"
+            );
     }
 
     [Test]
@@ -306,6 +312,7 @@ public class FailureClassificationTests : TestSetup
     public class OutsideJunctionTrain : ServiceTrain<Unit, Unit>, IOutsideJunctionTrain
     {
         public FailureClass? SeenClass { get; private set; }
+        public FailureClass? SeenOnExceptionData { get; private set; }
 
         protected override Task<Either<Exception, Unit>> Junctions() =>
             throw new BespokeFailure("raised before any junction ran");
@@ -317,6 +324,9 @@ public class FailureClassificationTests : TestSetup
         )
         {
             SeenClass = metadata.FailureClass;
+            SeenOnExceptionData = (
+                exception.Data["TrainExceptionData"] as TrainExceptionData
+            )?.FailureClass;
             return Task.CompletedTask;
         }
     }

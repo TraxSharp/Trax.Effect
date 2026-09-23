@@ -178,11 +178,26 @@ internal static class ServiceTrainExtensions
             if (classifier?.Classify(failureReason) is not { } failureClass)
                 return null;
 
-            if (
-                failureReason.Data["TrainExceptionData"] is TrainExceptionData data
-                && data.FailureClass is null
-            )
-                data.FailureClass = failureClass;
+            if (failureReason.Data["TrainExceptionData"] is TrainExceptionData data)
+            {
+                data.FailureClass ??= failureClass;
+            }
+            else
+            {
+                // A failure raised outside any junction carries no data yet. Attach it, with
+                // the fields AddException would derive anyway, so the class travels with the
+                // failure when a remote worker reports it back.
+                failureReason.Data["TrainExceptionData"] = new TrainExceptionData
+                {
+                    TrainName = serviceTrain.TrainName,
+                    TrainExternalId = serviceTrain.ExternalId,
+                    Type = failureReason.GetType().Name,
+                    Junction = "TrainException",
+                    Message = failureReason.Message,
+                    StackTrace = failureReason.StackTrace,
+                    FailureClass = failureClass,
+                };
+            }
 
             return failureClass;
         }
