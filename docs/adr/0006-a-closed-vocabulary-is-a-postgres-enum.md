@@ -39,7 +39,11 @@ Postgres enums at all and needs a new type.
 and all three must name the same enums. SQLite stores each enum as its integer value (EF's
 default there), so raw SQL against SQLite, such as the dispatch claim and candidate queries, must
 compare enum columns to those integers, not to the Postgres labels; the SQLite dialect generates
-the literals from the enums for that reason. The in-memory provider stores the C# value and runs
+the literals from the enums for that reason. The same holds for SQLite migrations: 009 stores
+`failure_class` as `INTEGER` defaulting to `0` (Unclassified), and 008's partial indexes filter on
+the integer values. Because SQLite's SQL and indexes depend on those integers, the enums they
+compare against pin their values explicitly (`TrainState` does, as do `WorkQueueStatus` and `FailureClass`), so
+reordering members cannot silently change what a stored row means. The in-memory provider stores the C# value and runs
 no SQL. Neither needs the Postgres mapping.
 
 ## Exemplars

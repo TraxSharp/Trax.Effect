@@ -55,6 +55,13 @@ token finishes its work after the caller gives up, and that run is now recorded 
 `Completed` rather than surfacing `OperationCanceledException`. This is a behaviour change for
 anything that treated a cancelled request as proof the work did not happen. It never was.
 
+**A failed save is never rewritten as a different outcome.** If saving a completed run's outcome
+throws, the save error propagates as it is; the run is not recorded as `Failed`, because the work
+happened, and the row stays `InProgress` for the stale-run reaper. If recording a failed or
+cancelled run's outcome throws, the recording error is logged and the train's original failure
+still propagates, with its failure hooks, so the caller learns why the train failed rather than
+why the bookkeeping did.
+
 **The rule is one method, not a convention.** `SaveOutcome` exists so the terminal write is a named
 thing with the reason attached, rather than three call sites that each have to remember.
 
@@ -70,4 +77,8 @@ observe, not the shape of the code that produces them.
 
 ## Changelog
 
+- **2026-09-23**: Recorded what happens when the terminal save itself fails: a completed run
+  propagates the save error instead of being rewritten as `Failed` (the row stays `InProgress`
+  for the reaper), and a failed run's recording error is logged while the original failure
+  propagates with its hooks.
 - **2026-09-17**: Recorded.
