@@ -278,6 +278,7 @@ namespace Trax.Effect.Data.Services.SqlDialect
         string ClaimWorkQueueEntry();
         string DequeueBackgroundJobs();
         string LoadGroupFairQueuedJobs();
+        string LockSubject();
         System.FormattableString TryAcquireLeaderLock(string lockName);
     }
 }

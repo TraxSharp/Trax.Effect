@@ -13,10 +13,26 @@ internal class PostgresSqlDialect : ISqlDialect
 
     public string ClaimWorkQueueEntry() =>
         """
-            SELECT * FROM trax.work_queue
-            WHERE id = {0} AND status = 'queued' AND confirmed_at IS NOT NULL
+            SELECT * FROM trax.work_queue w
+            WHERE w.id = {0}
+              AND w.status = 'queued'
+              AND w.confirmed_at IS NOT NULL
+              AND (
+                w.subject_key IS NULL
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM trax.work_queue b
+                    JOIN trax.metadata m ON m.id = b.metadata_id
+                    WHERE b.subject_key = w.subject_key
+                      AND b.status = 'dispatched'
+                      AND m.train_state IN ('pending', 'in_progress')
+                )
+              )
             FOR UPDATE SKIP LOCKED
             """;
+
+    /// <inheritdoc />
+    public string LockSubject() => "SELECT pg_advisory_xact_lock(hashtext({0}))";
 
     public string DequeueBackgroundJobs() =>
         """
