@@ -172,6 +172,23 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
     ///
     /// Has no effect unless <see cref="OnQueue"/> is also overridden.
     /// </remarks>
+    /// <summary>
+    /// Identifies the thing this mutation touches, so two entries naming the same subject are not
+    /// dispatched at the same time. Returns null by default, which means no serialization.
+    /// </summary>
+    /// <remarks>
+    /// Called at enqueue time with a metadata carrying the input, so the key can vary per mutation
+    /// rather than being fixed per train — read it with <c>metadata.GetInput&lt;T&gt;()</c>.
+    ///
+    /// Throwing aborts the enqueue. That is deliberate: a key that cannot be computed must not
+    /// silently become null, because that would drop the serialization guarantee at exactly the
+    /// moment the caller was relying on it.
+    ///
+    /// Only entries created through the mediator's queue path carry a key. Work queued from a
+    /// manifest is not about a record and does not have a subject.
+    /// </remarks>
+    protected virtual string? QueueSubjectKey(Metadata metadata) => null;
+
     protected virtual bool DeferQueuePromotion => false;
 
     protected virtual Task OnQueue(Metadata metadata, CancellationToken ct) => Task.CompletedTask;

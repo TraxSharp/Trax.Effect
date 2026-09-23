@@ -845,6 +845,7 @@ namespace Trax.Effect.Models.WorkQueue.DTOs
         public long? ManifestId { get; set; }
         public int Priority { get; set; }
         public System.DateTime? ScheduledAt { get; set; }
+        public string? SubjectKey { get; set; }
         public required string TrainName { get; set; }
     }
 }
@@ -887,6 +888,8 @@ namespace Trax.Effect.Models.WorkQueue
         public System.DateTime? ScheduledAt { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("status")]
         public Trax.Effect.Enums.WorkQueueStatus Status { get; set; }
+        [System.ComponentModel.DataAnnotations.Schema.Column("subject_key")]
+        public string? SubjectKey { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("train_name")]
         public string TrainName { get; set; }
         public override string ToString() { }
@@ -1121,6 +1124,7 @@ namespace Trax.Effect.Services.ServiceTrain
         protected virtual System.Threading.Tasks.Task OnFailed(Trax.Effect.Models.Metadata.Metadata metadata, System.Exception exception, System.Threading.CancellationToken ct) { }
         protected virtual System.Threading.Tasks.Task OnQueue(Trax.Effect.Models.Metadata.Metadata metadata, System.Threading.CancellationToken ct) { }
         protected virtual System.Threading.Tasks.Task OnStarted(Trax.Effect.Models.Metadata.Metadata metadata, System.Threading.CancellationToken ct) { }
+        protected virtual string? QueueSubjectKey(Trax.Effect.Models.Metadata.Metadata metadata) { }
         public override System.Threading.Tasks.Task<TOut> Run(TIn input, System.Threading.CancellationToken cancellationToken = default) { }
         public virtual System.Threading.Tasks.Task<TOut> Run(TIn input, Trax.Effect.Models.Metadata.Metadata metadata) { }
         public virtual System.Threading.Tasks.Task<TOut> Run(TIn input, Trax.Effect.Models.Metadata.Metadata metadata, System.Threading.CancellationToken cancellationToken) { }

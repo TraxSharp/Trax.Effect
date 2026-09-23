@@ -60,6 +60,19 @@ public class WorkQueue : IModel
     public DateTime CreatedAt { get; set; }
 
     /// <summary>
+    /// Identifies what this work touches, so entries naming the same subject are not run at the
+    /// same time. Null — the default — means the entry is not serialized against anything.
+    /// </summary>
+    /// <remarks>
+    /// Supplied by the train through <c>ServiceTrain.QueueSubjectKey</c>. It is an opaque string:
+    /// Trax compares it and nothing else, so its shape is the consumer's to decide. A record
+    /// identity is the usual choice, because the systems that need this are the ones where two
+    /// concurrent writes to one record are resolved by last-write-wins.
+    /// </remarks>
+    [Column("subject_key")]
+    public string? SubjectKey { get; set; }
+
+    /// <summary>
     /// When this entry became eligible for dispatch, or null while it is still being staged.
     /// </summary>
     /// <remarks>
@@ -169,6 +182,7 @@ public class WorkQueue : IModel
             Status = WorkQueueStatus.Queued,
             CreatedAt = DateTime.UtcNow,
             ConfirmedAt = dto.DeferPromotion ? null : DateTime.UtcNow,
+            SubjectKey = dto.SubjectKey,
         };
     }
 

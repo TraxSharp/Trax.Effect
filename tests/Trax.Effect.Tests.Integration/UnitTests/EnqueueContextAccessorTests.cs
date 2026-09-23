@@ -40,7 +40,9 @@ public class EnqueueContextAccessorTests
 
         accessor
             .Current.Should()
-            .BeNull("a hook reading Current after the enqueue would write on a context nobody commits");
+            .BeNull(
+                "a hook reading Current after the enqueue would write on a context nobody commits"
+            );
     }
 
     [Test]

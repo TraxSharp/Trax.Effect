@@ -42,6 +42,12 @@ public class CreateWorkQueue
     public long? DeadLetterId { get; set; }
 
     /// <summary>
+    /// Identifies what this work touches. Entries sharing a non-null key are not dispatched
+    /// concurrently. Null means no serialization.
+    /// </summary>
+    public string? SubjectKey { get; set; }
+
+    /// <summary>
     /// Leaves the entry unconfirmed, and therefore undispatchable, until something promotes it.
     /// Defaults to false, so an entry is dispatchable as soon as it is committed.
     /// </summary>
