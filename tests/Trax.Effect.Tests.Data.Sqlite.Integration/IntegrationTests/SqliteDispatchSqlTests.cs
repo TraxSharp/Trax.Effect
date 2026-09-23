@@ -117,4 +117,29 @@ public class SqliteDispatchSqlTests : TestSetup
 
         candidates.Should().Contain(other.Id).And.NotContain(sibling.Id);
     }
+
+    [Test]
+    public async Task A_row_written_without_a_failure_class_reads_and_filters_as_unclassified()
+    {
+        var factory = Scope.ServiceProvider.GetRequiredService<IDataContextProviderFactory>();
+        using var context = await factory.CreateDbContextAsync(CancellationToken.None);
+        var externalId = Guid.NewGuid().ToString("N");
+
+        // What a row written before the column existed looks like: the migration default.
+        await ((DbContext)context).Database.ExecuteSqlRawAsync(
+            "INSERT INTO metadata (name, external_id, train_state, start_time) "
+                + "VALUES ('Sqlite.Legacy', {0}, 0, '2026-01-01 00:00:00')",
+            externalId
+        );
+
+        var row = await context
+            .Metadatas.AsNoTracking()
+            .Where(m =>
+                m.ExternalId == externalId
+                && m.FailureClass == Trax.Core.Exceptions.FailureClass.Unclassified
+            )
+            .SingleOrDefaultAsync();
+
+        row.Should().NotBeNull("the default has to be the value EF stores, not the label");
+    }
 }
