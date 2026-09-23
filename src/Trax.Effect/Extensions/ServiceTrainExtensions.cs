@@ -129,10 +129,20 @@ internal static class ServiceTrainExtensions
             // Classify before recording, so the class lands on the metadata with the rest of the
             // failure and travels with the exception data if this run is reported somewhere else.
             // Only real failures are classified — a cancellation is not one.
-            if (resultState == TrainState.Failed)
-                Classify(serviceTrain, failureReason);
+            var classified =
+                resultState == TrainState.Failed ? Classify(serviceTrain, failureReason) : null;
 
             serviceTrain.Metadata.AddException(failureReason);
+
+            // A class the failure already carried, from a remote worker or a junction, was
+            // decided where the real exception was held and wins. The classifier's answer
+            // applies to everything else, including a failure raised outside any junction,
+            // which carries no exception data for it to be written onto.
+            if (
+                classified is { } failureClass
+                && serviceTrain.Metadata.FailureClass == FailureClass.Unclassified
+            )
+                serviceTrain.Metadata.FailureClass = failureClass;
         }
 
         await serviceTrain.EffectRunner.Update(serviceTrain.Metadata);
@@ -141,15 +151,15 @@ internal static class ServiceTrainExtensions
     }
 
     /// <summary>
-    /// Asks the registered <see cref="IFailureClassifier"/> what kind of failure this was and
-    /// writes the answer onto the exception's structured data, where
-    /// <c>Metadata.AddException</c> picks it up.
+    /// Asks the registered <see cref="IFailureClassifier"/> what kind of failure this was, and
+    /// writes the answer onto the exception's structured data when it has some, so the class
+    /// travels with the failure if it is reported somewhere else.
     /// </summary>
     /// <remarks>
     /// A classifier is optional, and one that throws must not mask the failure it was asked about:
     /// its exception is logged and the failure stays unclassified.
     /// </remarks>
-    private static void Classify<TIn, TOut>(
+    private static FailureClass? Classify<TIn, TOut>(
         ServiceTrain<TIn, TOut> serviceTrain,
         Exception failureReason
     )
@@ -157,14 +167,17 @@ internal static class ServiceTrainExtensions
         try
         {
             var classifier = serviceTrain.ServiceProvider?.GetService<IFailureClassifier>();
-            if (classifier is null)
-                return;
 
-            if (classifier.Classify(failureReason) is not { } failureClass)
-                return;
+            if (classifier?.Classify(failureReason) is not { } failureClass)
+                return null;
 
-            if (failureReason.Data["TrainExceptionData"] is TrainExceptionData data)
+            if (
+                failureReason.Data["TrainExceptionData"] is TrainExceptionData data
+                && data.FailureClass is null
+            )
                 data.FailureClass = failureClass;
+
+            return failureClass;
         }
         catch (Exception ex)
         {
@@ -173,6 +186,8 @@ internal static class ServiceTrainExtensions
                 "Failure classifier threw for train ({TrainName}); recording the failure as unclassified.",
                 serviceTrain.TrainName
             );
+
+            return null;
         }
     }
 }

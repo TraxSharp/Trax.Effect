@@ -139,7 +139,7 @@ public class Metadata : IModel, IDisposable
     /// <see cref="FailureClass.Unclassified"/> when nothing classified it.
     /// </summary>
     [Column("failure_class")]
-    public FailureClass FailureClass { get; private set; } = FailureClass.Unclassified;
+    public FailureClass FailureClass { get; internal set; } = FailureClass.Unclassified;
 
     /// <summary>
     /// Gets or sets the stack trace associated with the train failure, if applicable.

@@ -32,6 +32,8 @@ public class FailureClassificationTests : TestSetup
             .AddScopedTraxRoute<IClassifiedFailingTrain, ClassifiedFailingTrain>()
             .AddScopedTraxRoute<IClassifiedCancellingTrain, ClassifiedCancellingTrain>()
             .AddScopedTraxRoute<IClassifiedPassingTrain, ClassifiedPassingTrain>()
+            .AddScopedTraxRoute<IOutsideJunctionTrain, OutsideJunctionTrain>()
+            .AddScopedTraxRoute<ICarriedClassTrain, CarriedClassTrain>()
             .BuildServiceProvider();
 
     [SetUp]
@@ -84,7 +86,9 @@ public class FailureClassificationTests : TestSetup
         var act = async () => await train.Run(Unit.Default);
 
         await act.Should()
-            .ThrowAsync<Exception>("the train's failure is what surfaces, not the classifier's");
+            .ThrowAsync<BespokeFailure>(
+                "the train's failure is what surfaces, not the classifier's"
+            );
         train
             .SeenClass.Should()
             .Be(
@@ -136,6 +140,55 @@ public class FailureClassificationTests : TestSetup
             );
     }
 
+    [Test]
+    public async Task A_failure_raised_outside_any_junction_is_classified()
+    {
+        Classifier.Result = FailureClass.Conflict;
+        var train = (OutsideJunctionTrain)
+            Scope.ServiceProvider.GetRequiredService<IOutsideJunctionTrain>();
+
+        var act = async () => await train.Run(Unit.Default);
+        await act.Should().ThrowAsync<BespokeFailure>();
+
+        train
+            .SeenClass.Should()
+            .Be(
+                FailureClass.Conflict,
+                "a failure with no junction context carries no exception data to write the class "
+                    + "onto, so the class is recorded on the run directly"
+            );
+    }
+
+    [Test]
+    public async Task A_class_the_failure_already_carries_wins_over_the_classifier()
+    {
+        Classifier.Result = FailureClass.Permanent;
+        var train = (CarriedClassTrain)
+            Scope.ServiceProvider.GetRequiredService<ICarriedClassTrain>();
+
+        var act = async () => await train.Run(Unit.Default);
+        await act.Should().ThrowAsync<Exception>();
+
+        train
+            .SeenClass.Should()
+            .Be(
+                FailureClass.Transient,
+                "the class was decided where the real exception was held, as a remote worker does"
+            );
+    }
+
+    [Test]
+    public async Task A_failed_run_fires_OnFailed_once()
+    {
+        var train = Resolve();
+
+        await Run(train);
+
+        train
+            .FailedHookCalls.Should()
+            .Be(1, "a failure takes one path, so the terminal write and its hooks run once");
+    }
+
     private ClassifiedFailingTrain Resolve() =>
         (ClassifiedFailingTrain)Scope.ServiceProvider.GetRequiredService<IClassifiedFailingTrain>();
 
@@ -183,6 +236,7 @@ public class FailureClassificationTests : TestSetup
     {
         public FailureClass? SeenClass { get; private set; }
         public FailureClass? SeenOnExceptionData { get; private set; }
+        public int FailedHookCalls { get; private set; }
 
         protected override Task<Either<Exception, Unit>> Junctions() =>
             Chain<ThrowingJunction>().Resolve();
@@ -193,6 +247,7 @@ public class FailureClassificationTests : TestSetup
             CancellationToken ct
         )
         {
+            FailedHookCalls++;
             SeenClass = metadata.FailureClass;
             SeenOnExceptionData = (
                 exception.Data["TrainExceptionData"] as TrainExceptionData
@@ -220,5 +275,64 @@ public class FailureClassificationTests : TestSetup
     {
         protected override Task<Either<Exception, Unit>> Junctions() =>
             Task.FromResult<Either<Exception, Unit>>(Unit.Default);
+    }
+
+    public interface IOutsideJunctionTrain : IServiceTrain<Unit, Unit>;
+
+    public class OutsideJunctionTrain : ServiceTrain<Unit, Unit>, IOutsideJunctionTrain
+    {
+        public FailureClass? SeenClass { get; private set; }
+
+        protected override Task<Either<Exception, Unit>> Junctions() =>
+            throw new BespokeFailure("raised before any junction ran");
+
+        protected override Task OnFailed(
+            Metadata metadata,
+            Exception exception,
+            CancellationToken ct
+        )
+        {
+            SeenClass = metadata.FailureClass;
+            return Task.CompletedTask;
+        }
+    }
+
+    public class CarriedClassJunction : Junction<Unit, Unit>
+    {
+        // The shape a remote run's failure arrives in: the worker's record, serialized.
+        public override Task<Unit> Run(Unit input) =>
+            throw new TrainException(
+                System.Text.Json.JsonSerializer.Serialize(
+                    new TrainExceptionData
+                    {
+                        TrainName = "",
+                        TrainExternalId = "",
+                        Type = "TimeoutException",
+                        Junction = "CallUpstream",
+                        Message = "upstream timed out",
+                        FailureClass = FailureClass.Transient,
+                    }
+                )
+            );
+    }
+
+    public interface ICarriedClassTrain : IServiceTrain<Unit, Unit>;
+
+    public class CarriedClassTrain : ServiceTrain<Unit, Unit>, ICarriedClassTrain
+    {
+        public FailureClass? SeenClass { get; private set; }
+
+        protected override Task<Either<Exception, Unit>> Junctions() =>
+            Chain<CarriedClassJunction>().Resolve();
+
+        protected override Task OnFailed(
+            Metadata metadata,
+            Exception exception,
+            CancellationToken ct
+        )
+        {
+            SeenClass = metadata.FailureClass;
+            return Task.CompletedTask;
+        }
     }
 }
