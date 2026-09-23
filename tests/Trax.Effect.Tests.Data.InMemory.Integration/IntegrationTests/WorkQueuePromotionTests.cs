@@ -81,9 +81,43 @@ public class WorkQueuePromotionTests : TestSetup
         entry.ConfirmedAt.Should().NotBeNull();
     }
 
+    [Test]
+    public async Task The_stale_sweeps_leave_an_old_confirmed_backlog_alone()
+    {
+        var backlog = await Stage(age: TimeSpan.FromHours(1), confirmed: true);
+        var confirmedAt = (await Load(backlog)).ConfirmedAt;
+
+        await Promotion.CancelStaleAsync(TimeSpan.FromMinutes(10), CancellationToken.None);
+        await Promotion.PromoteStaleAsync(TimeSpan.FromMinutes(10), CancellationToken.None);
+
+        var entry = await Load(backlog);
+        entry
+            .Status.Should()
+            .Be(
+                WorkQueueStatus.Queued,
+                "a confirmed entry waiting its turn is a backlog, not a stranded stage"
+            );
+        entry.ConfirmedAt.Should().Be(confirmedAt);
+    }
+
+    [Test]
+    public async Task The_opt_in_stale_sweep_does_not_revive_a_cancelled_staged_entry()
+    {
+        var cancelled = await Stage(age: TimeSpan.FromHours(1), status: WorkQueueStatus.Cancelled);
+
+        await Promotion.PromoteStaleAsync(TimeSpan.FromMinutes(10), CancellationToken.None);
+
+        var entry = await Load(cancelled);
+        entry.Status.Should().Be(WorkQueueStatus.Cancelled);
+        entry
+            .ConfirmedAt.Should()
+            .BeNull("an operator cancelled it, and confirming it would revive it");
+    }
+
     private async Task<long> Stage(
         TimeSpan? age = null,
-        WorkQueueStatus status = WorkQueueStatus.Queued
+        WorkQueueStatus status = WorkQueueStatus.Queued,
+        bool confirmed = false
     )
     {
         var entry = WorkQueue.Create(
@@ -96,6 +130,8 @@ public class WorkQueuePromotionTests : TestSetup
         );
         entry.CreatedAt = DateTime.UtcNow - (age ?? TimeSpan.Zero);
         entry.Status = status;
+        if (confirmed)
+            entry.ConfirmedAt = entry.CreatedAt;
 
         using var context = await Factory.CreateDbContextAsync(CancellationToken.None);
         await context.Track(entry);
