@@ -36,8 +36,11 @@ the value; then the code that writes it. Removing or renaming a value is not sup
 Postgres enums at all and needs a new type.
 
 **The mapping lives in three places,** the Npgsql data source, the EF model and the EF options,
-and all three must name the same enums. SQLite and the in-memory provider store the C# value
-directly and are unaffected.
+and all three must name the same enums. SQLite stores each enum as its integer value (EF's
+default there), so raw SQL against SQLite, such as the dispatch claim and candidate queries, must
+compare enum columns to those integers, not to the Postgres labels; the SQLite dialect generates
+the literals from the enums for that reason. The in-memory provider stores the C# value and runs
+no SQL. Neither needs the Postgres mapping.
 
 ## Exemplars
 
