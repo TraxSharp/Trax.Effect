@@ -164,6 +164,13 @@ internal static class ServiceTrainExtensions
         Exception failureReason
     )
     {
+        // A failure rebuilt from a serialized record, which is how a remote run's failure
+        // arrives, was decided where the real exception was held. If that side sent no class the
+        // failure stays unclassified: classifying the rebuilt exception here would be judging a
+        // type name the calling side never saw.
+        if (IsRebuiltFailure(failureReason))
+            return null;
+
         try
         {
             var classifier = serviceTrain.ServiceProvider?.GetService<IFailureClassifier>();
@@ -188,6 +195,21 @@ internal static class ServiceTrainExtensions
             );
 
             return null;
+        }
+    }
+
+    private static bool IsRebuiltFailure(Exception failure)
+    {
+        if (failure is not TrainException || !failure.Message.StartsWith('{'))
+            return false;
+
+        try
+        {
+            return JsonSerializer.Deserialize<TrainExceptionData>(failure.Message) is not null;
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 }

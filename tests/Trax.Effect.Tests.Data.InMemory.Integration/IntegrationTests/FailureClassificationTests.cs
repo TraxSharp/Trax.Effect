@@ -34,6 +34,7 @@ public class FailureClassificationTests : TestSetup
             .AddScopedTraxRoute<IClassifiedPassingTrain, ClassifiedPassingTrain>()
             .AddScopedTraxRoute<IOutsideJunctionTrain, OutsideJunctionTrain>()
             .AddScopedTraxRoute<ICarriedClassTrain, CarriedClassTrain>()
+            .AddScopedTraxRoute<IRemoteUnclassifiedTrain, RemoteUnclassifiedTrain>()
             .BuildServiceProvider();
 
     [SetUp]
@@ -175,6 +176,26 @@ public class FailureClassificationTests : TestSetup
                 FailureClass.Transient,
                 "the class was decided where the real exception was held, as a remote worker does"
             );
+    }
+
+    [Test]
+    public async Task A_rebuilt_remote_failure_the_worker_did_not_classify_stays_unclassified()
+    {
+        Classifier.Result = FailureClass.Permanent;
+        var train = (RemoteUnclassifiedTrain)
+            Scope.ServiceProvider.GetRequiredService<IRemoteUnclassifiedTrain>();
+
+        var act = async () => await train.Run(Unit.Default);
+        await act.Should().ThrowAsync<Exception>();
+
+        train
+            .SeenClass.Should()
+            .Be(
+                FailureClass.Unclassified,
+                "the worker held the real exception and chose not to classify it; the calling "
+                    + "side only has a rebuilt one and does not second-guess it"
+            );
+        Classifier.Seen.Should().BeNull("the classifier is not asked about a rebuilt failure");
     }
 
     [Test]
@@ -324,6 +345,43 @@ public class FailureClassificationTests : TestSetup
 
         protected override Task<Either<Exception, Unit>> Junctions() =>
             Chain<CarriedClassJunction>().Resolve();
+
+        protected override Task OnFailed(
+            Metadata metadata,
+            Exception exception,
+            CancellationToken ct
+        )
+        {
+            SeenClass = metadata.FailureClass;
+            return Task.CompletedTask;
+        }
+    }
+
+    public class RemoteUnclassifiedJunction : Junction<Unit, Unit>
+    {
+        public override Task<Unit> Run(Unit input) =>
+            throw new TrainException(
+                System.Text.Json.JsonSerializer.Serialize(
+                    new TrainExceptionData
+                    {
+                        TrainName = "",
+                        TrainExternalId = "",
+                        Type = "InvalidOperationException",
+                        Junction = "RemoteJunction",
+                        Message = "worker failed",
+                    }
+                )
+            );
+    }
+
+    public interface IRemoteUnclassifiedTrain : IServiceTrain<Unit, Unit>;
+
+    public class RemoteUnclassifiedTrain : ServiceTrain<Unit, Unit>, IRemoteUnclassifiedTrain
+    {
+        public FailureClass? SeenClass { get; private set; }
+
+        protected override Task<Either<Exception, Unit>> Junctions() =>
+            Chain<RemoteUnclassifiedJunction>().Resolve();
 
         protected override Task OnFailed(
             Metadata metadata,
