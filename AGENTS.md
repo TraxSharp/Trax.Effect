@@ -18,6 +18,7 @@ if your work contradicts one, say so rather than silently overriding it.
 | Working on | Read first |
 | --- | --- |
 | a schema change | [0001](./docs/adr/0001-schema-changes-are-hand-written-sql.md), hand-written SQL journaled by DbUp, no EF migrations |
+| an enum stored in a column, or a new value for one | [0006](./docs/adr/0006-a-closed-vocabulary-is-a-postgres-enum.md), a Postgres enum mapped in three places, and a new value ships before its writer |
 | anything that creates a table | [0002](./docs/adr/0002-framework-tables-are-migrated-domain-tables-are-bootstrapped.md), which half of the split you are in |
 | a new data model | [0003](./docs/adr/0003-a-model-and-its-persistent-mapping-are-a-pair.md), and [0001](./docs/adr/0001-schema-changes-are-hand-written-sql.md) for the migration it needs |
 | a table for a feature package | `Trax.Docs/adr/0009`, the DDL ships in the core provider set or it never runs |
