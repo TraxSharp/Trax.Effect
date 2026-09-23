@@ -14,7 +14,13 @@ namespace Trax.Effect.Tests.Data.InMemory.Integration.IntegrationTests;
 /// The second phase of a two-phase enqueue, and the sweep that resolves entries a crash left
 /// unconfirmed, on the in-memory provider. That provider cannot translate ExecuteUpdate, and a
 /// deferring train that threw after its hook had already run would be the result.
+///
+/// <para>Enforces Trax.Docs/adr/0018-a-deferred-enqueue-is-staged-and-a-stranded-one-is-cancelled.md.</para>
 /// </summary>
+[Property(
+    "adr",
+    "Trax.Docs/adr/0018-a-deferred-enqueue-is-staged-and-a-stranded-one-is-cancelled.md"
+)]
 public class WorkQueuePromotionTests : TestSetup
 {
     public override ServiceProvider ConfigureServices(IServiceCollection services) =>

@@ -21,7 +21,10 @@ namespace Trax.Effect.Tests.Data.InMemory.Integration.IntegrationTests;
 /// that, because a future change that starts wrapping exceptions would otherwise quietly turn every
 /// classification into <c>Unclassified</c> rather than failing.
 /// </para>
+///
+/// <para>Enforces Trax.Docs/adr/0020-a-failure-is-classified-where-it-happens-and-carried.md.</para>
 /// </summary>
+[Property("adr", "Trax.Docs/adr/0020-a-failure-is-classified-where-it-happens-and-carried.md")]
 public class FailureClassificationTests : TestSetup
 {
     private static readonly ConfigurableClassifier Classifier = new();

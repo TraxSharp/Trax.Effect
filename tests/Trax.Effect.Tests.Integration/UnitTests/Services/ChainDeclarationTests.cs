@@ -13,7 +13,10 @@ namespace Trax.Effect.Tests.Integration.UnitTests.Services;
 /// not be the one that runs, and verifying it would prove nothing. The accessors for
 /// per-execution state therefore throw while a chain is being declared, which makes that kind of
 /// chain impossible to write rather than merely discouraged.</para>
+///
+/// <para>Enforces Trax.Docs/adr/0016-a-junction-chain-is-a-declaration-not-a-step-of-the-work.md.</para>
 /// </summary>
+[Property("adr", "Trax.Docs/adr/0016-a-junction-chain-is-a-declaration-not-a-step-of-the-work.md")]
 [TestFixture]
 public class ChainDeclarationTests
 {

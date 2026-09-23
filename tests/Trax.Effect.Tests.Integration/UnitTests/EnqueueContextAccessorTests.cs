@@ -9,7 +9,13 @@ namespace Trax.Effect.Tests.Integration.UnitTests;
 /// Covers the ambient enqueue context an <c>OnQueue</c> hook reads to join the enqueue's
 /// transaction. The scoping rules matter: a hook that reads <c>Current</c> outside an enqueue would
 /// otherwise silently write on a context nobody commits.
+///
+/// <para>Enforces Trax.Docs/adr/0018-a-deferred-enqueue-is-staged-and-a-stranded-one-is-cancelled.md.</para>
 /// </summary>
+[Property(
+    "adr",
+    "Trax.Docs/adr/0018-a-deferred-enqueue-is-staged-and-a-stranded-one-is-cancelled.md"
+)]
 [TestFixture]
 public class EnqueueContextAccessorTests
 {
