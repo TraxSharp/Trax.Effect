@@ -76,8 +76,8 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
     public string? CanonicalName { get; set; }
 
     /// <summary>
-    /// Gets the typed input that was passed to this train. Set before <see cref="RunInternal"/>
-    /// executes, so it is available in all lifecycle hooks: <see cref="OnStarted"/>,
+    /// Gets the typed input that was passed to this train. Set before the chain
+    /// runs, so it is available in all lifecycle hooks: <see cref="OnStarted"/>,
     /// <see cref="OnCompleted"/>, <see cref="OnFailed"/>, and <see cref="OnCancelled"/>.
     /// Returns <c>default</c> before the train has been run.
     /// </summary>
@@ -108,7 +108,7 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
         ?? throw new TrainException($"Could not find FullName for ({GetType().Name})");
 
     /// <summary>
-    /// Called after the train's metadata is initialized and persisted, before RunInternal executes.
+    /// Called after the train's metadata is initialized and persisted, before the chain runs.
     /// Override to add per-train startup logic. Exceptions are caught and logged — they will not
     /// prevent the train from running.
     /// </summary>

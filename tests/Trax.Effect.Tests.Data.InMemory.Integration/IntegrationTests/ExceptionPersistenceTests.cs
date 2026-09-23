@@ -177,7 +177,7 @@ public class ExceptionPersistenceTests : TestSetup
 
     #endregion
 
-    #region Plain Exception (not from junction — RunInternal override)
+    #region Plain Exception (not from a junction)
 
     [Test]
     public async Task PlainException_NotFromJunction_StillPersistsFailureFields()

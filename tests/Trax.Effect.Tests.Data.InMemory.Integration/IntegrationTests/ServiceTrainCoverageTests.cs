@@ -11,7 +11,7 @@ namespace Trax.Effect.Tests.Data.InMemory.Integration.IntegrationTests;
 
 /// <summary>
 /// Tests targeting branches in ServiceTrain.Run that the existing suite does not exercise:
-///   - Junctions() throws OperationCanceledException -> default RunInternal catches and returns Either.Left,
+///   - Junctions() throws OperationCanceledException -> the train catches it and returns Either.Left,
 ///     which then routes through the "result.IsLeft + cancellation" hook path.
 ///   - Output cannot be JSON-serialized -> the post-success serialization fallback logs and continues.
 /// </summary>

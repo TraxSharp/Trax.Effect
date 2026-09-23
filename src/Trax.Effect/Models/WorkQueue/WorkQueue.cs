@@ -70,9 +70,10 @@ public class WorkQueue : IModel
     /// record identity is the usual choice, because the systems that need this are the ones where
     /// two concurrent writes to one record are resolved by last-write-wins.
     ///
-    /// "In flight" ends when the run reaches a terminal state, including when the scheduler's
-    /// stale-run reaper fails a run that has been in progress longer than its timeout. A run that
-    /// is still working past that timeout no longer holds its subject. Only queued work is
+    /// "In flight" ends when the run reaches a terminal state, including when one of the
+    /// scheduler's stale-run reapers fails it: a run left pending longer than
+    /// <c>StalePendingTimeout</c>, or in progress longer than <c>StaleInProgressTimeout</c>. A run
+    /// that is still working past its timeout no longer holds its subject. Only queued work is
     /// serialized; a synchronous run through the mediator does not consult the key.
     /// </remarks>
     [Column("subject_key")]

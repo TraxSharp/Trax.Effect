@@ -10,9 +10,13 @@
 -- still on the previous version inserts rows without it; with no default those rows would be
 -- unconfirmed, and nothing confirms a row it did not stage, so they would never dispatch. Code
 -- that knows the column always writes it, as a timestamp or as an explicit NULL when it defers.
-ALTER TABLE trax.work_queue ADD COLUMN IF NOT EXISTS confirmed_at timestamptz NULL DEFAULT now();
+-- The default is set after the backfill: added with the column, it would fill every existing
+-- row with the migration time and leave the backfill nothing to do.
+ALTER TABLE trax.work_queue ADD COLUMN IF NOT EXISTS confirmed_at timestamptz NULL;
 
 UPDATE trax.work_queue SET confirmed_at = created_at WHERE confirmed_at IS NULL;
+
+ALTER TABLE trax.work_queue ALTER COLUMN confirmed_at SET DEFAULT now();
 
 -- Dispatch reads queued + confirmed ordered by priority and age; keep that covered without
 -- indexing every row that has ever been dispatched.
