@@ -1,3 +1,4 @@
+using DbUp;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Npgsql;
@@ -6,9 +7,10 @@ using Trax.Effect.Data.Postgres.Utils;
 namespace Trax.Effect.Tests.Integration.IntegrationTests;
 
 /// <summary>
-/// Verifies the migration 036 indexes exist after migrating. These bound the cleanup DELETE
-/// (foreign-key back-references) and the per-manifest FailedCount subquery, so a missing or
-/// misnamed index would silently reintroduce the O(table) behavior.
+/// Checks what the shipped Postgres migrations leave behind. The migration 036 indexes bound the
+/// cleanup DELETE (foreign-key back-references) and the per-manifest FailedCount subquery, so a
+/// missing or misnamed index would silently reintroduce the O(table) behavior. Migration 041 has
+/// to leave no work_queue row unconfirmed, even one written mid-migration by an older instance.
 /// </summary>
 [TestFixture]
 public class PostgresMigrationTests
@@ -52,5 +54,125 @@ public class PostgresMigrationTests
 
         foreach (var expected in ExpectedIndexes)
             indexes.Should().Contain(expected, $"index '{expected}' should exist after migration");
+    }
+
+    /// <summary>
+    /// DbUp runs a script without a transaction, so an instance still on the version before
+    /// 041 can insert a row between any two of its statements, without naming confirmed_at.
+    /// A row left with a NULL confirmed_at reads as staged: the dispatcher skips it and the
+    /// stale-staged sweep cancels it, so accepted work is lost. Every such row must end up
+    /// confirmed, whichever statement it lands after.
+    /// </summary>
+    [Test]
+    public async Task Migration041_RowsInsertedByAnOlderWriterMidMigration_AllEndConfirmed()
+    {
+        var builder = new NpgsqlConnectionStringBuilder(GetConnectionString())
+        {
+            Database = $"trax_migration_041_{Guid.NewGuid():N}",
+            Pooling = false,
+        };
+        var database = builder.Database!;
+        var maintenance = new NpgsqlConnectionStringBuilder(builder.ConnectionString)
+        {
+            Database = "postgres",
+        }.ConnectionString;
+
+        await using (var admin = new NpgsqlConnection(maintenance))
+        {
+            await admin.OpenAsync();
+            await Exec(admin, $"CREATE DATABASE {database}");
+        }
+
+        try
+        {
+            var connectionString = builder.ConnectionString;
+            await using (var setup = new NpgsqlConnection(connectionString))
+            {
+                await setup.OpenAsync();
+                await Exec(setup, "CREATE SCHEMA IF NOT EXISTS trax;");
+            }
+
+            var assembly = typeof(Trax.Effect.Data.Postgres.AssemblyMarker).Assembly;
+            var upTo040 = DeployChanges
+                .To.PostgresqlDatabase(connectionString)
+                .JournalToPostgresqlTable("trax", "migrations")
+                .WithScriptsEmbeddedInAssembly(assembly, name => MigrationNumber(name) <= 40)
+                .LogToNowhere()
+                .Build()
+                .PerformUpgrade();
+            upTo040.Successful.Should().BeTrue(upTo040.Error?.ToString());
+
+            var resource = assembly
+                .GetManifestResourceNames()
+                .Single(name => name.EndsWith("041_work_queue_confirmed_at.sql"));
+            string script;
+            await using (var stream = assembly.GetManifestResourceStream(resource)!)
+            using (var reader = new StreamReader(stream))
+                script = await reader.ReadToEndAsync();
+
+            var statements = SplitStatements(script);
+            statements.Should().HaveCountGreaterThan(1);
+
+            await using var connection = new NpgsqlConnection(connectionString);
+            await connection.OpenAsync();
+
+            var inserted = 0;
+            async Task InsertAsOlderWriter() =>
+                await Exec(
+                    connection,
+                    "INSERT INTO trax.work_queue (external_id, train_name, input, input_type_name) "
+                        + $"VALUES ('older-writer-{inserted++}', 'Some.Train', NULL, NULL);"
+                );
+
+            await InsertAsOlderWriter();
+            foreach (var statement in statements)
+            {
+                await Exec(connection, statement);
+                await InsertAsOlderWriter();
+            }
+
+            await using var count = connection.CreateCommand();
+            count.CommandText =
+                "SELECT external_id FROM trax.work_queue WHERE confirmed_at IS NULL ORDER BY id;";
+            var unconfirmed = new List<string>();
+            await using (var rows = await count.ExecuteReaderAsync())
+                while (await rows.ReadAsync())
+                    unconfirmed.Add(rows.GetString(0));
+
+            unconfirmed
+                .Should()
+                .BeEmpty(
+                    "a row an older instance inserts at any point during 041 must end up confirmed, "
+                        + "or the dispatcher never claims it and the stale-staged sweep cancels it"
+                );
+        }
+        finally
+        {
+            await using var admin = new NpgsqlConnection(maintenance);
+            await admin.OpenAsync();
+            await Exec(admin, $"DROP DATABASE IF EXISTS {database} WITH (FORCE)");
+        }
+    }
+
+    private static int MigrationNumber(string resourceName)
+    {
+        var file = resourceName[(resourceName.IndexOf(".Migrations.") + ".Migrations.".Length)..];
+        return int.Parse(file[..file.IndexOf('_')]);
+    }
+
+    // DbUp sends each statement separately; the script has no semicolons inside comments or
+    // literals, so dropping comment lines and splitting at semicolons yields the same statements.
+    private static List<string> SplitStatements(string script) =>
+        string.Join("\n", script.Split('\n').Where(line => !line.TrimStart().StartsWith("--")))
+            .Split(';')
+            .Select(statement => statement.Trim())
+            .Where(statement => statement.Length > 0)
+            .ToList();
+
+    private static async Task Exec(NpgsqlConnection connection, string sql)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        await command.ExecuteNonQueryAsync();
     }
 }

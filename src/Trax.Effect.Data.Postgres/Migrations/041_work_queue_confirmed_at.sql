@@ -8,15 +8,23 @@
 --
 -- The default is for writers that do not know the column. During a rolling deploy an instance
 -- still on the previous version inserts rows without it; with no default those rows would be
--- unconfirmed, and nothing confirms a row it did not stage, so they would never dispatch. Code
--- that knows the column always writes it, as a timestamp or as an explicit NULL when it defers.
--- The default is set after the backfill: added with the column, it would fill every existing
--- row with the migration time and leave the backfill nothing to do.
+-- unconfirmed, and nothing confirms a row it did not stage, so they would never dispatch (the
+-- stale-staged sweep would eventually cancel them). Code that knows the column always writes
+-- it, as a timestamp or as an explicit NULL when it defers.
+--
+-- The order matters. DbUp runs these statements without a transaction, so an old instance can
+-- insert between any two of them. The column is added bare, not as ADD COLUMN ... DEFAULT now(),
+-- because that would stamp every existing row with the migration time instead of its
+-- created_at. The default is set next, before the backfill: SET DEFAULT takes an ACCESS
+-- EXCLUSIVE lock, which waits for every in-flight inserting transaction, so any row inserted
+-- without the default is committed before it and visible to the backfill after it, and every
+-- row inserted after it gets now(). Backfilling first and setting the default last would leave
+-- a window in which a row slips past the backfill with a NULL.
 ALTER TABLE trax.work_queue ADD COLUMN IF NOT EXISTS confirmed_at timestamptz NULL;
 
-UPDATE trax.work_queue SET confirmed_at = created_at WHERE confirmed_at IS NULL;
-
 ALTER TABLE trax.work_queue ALTER COLUMN confirmed_at SET DEFAULT now();
+
+UPDATE trax.work_queue SET confirmed_at = created_at WHERE confirmed_at IS NULL;
 
 -- Dispatch reads queued + confirmed ordered by priority and age; keep that covered without
 -- indexing every row that has ever been dispatched.
