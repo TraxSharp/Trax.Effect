@@ -22,7 +22,7 @@ if your work contradicts one, say so rather than silently overriding it.
 | anything that creates a table | [0002](./docs/adr/0002-framework-tables-are-migrated-domain-tables-are-bootstrapped.md), which half of the split you are in |
 | a new data model | [0003](./docs/adr/0003-a-model-and-its-persistent-mapping-are-a-pair.md), and [0001](./docs/adr/0001-schema-changes-are-hand-written-sql.md) for the migration it needs |
 | a table for a feature package | `Trax.Docs/adr/0009`, the DDL ships in the core provider set or it never runs |
-| authorization types a consumer writes | [0004](./docs/adr/0004-trax-owns-the-authorization-vocabulary.md), Trax owns the vocabulary for its own concepts |
+| authorization types a consumer writes | [0004](./docs/adr/0004-trax-owns-the-authorization-vocabulary.md), Trax owns the authorization vocabulary: `[TraxAuthorize]` and `[TraxAllowAnonymous]` declare it on every surface, and the server's own attribute is refused at startup |
 | `work_queue.confirmed_at`, `subject_key`, or `IWorkQueuePromotion` | central `docs/0018` (a deferred enqueue is staged, and a stranded one is cancelled) and `docs/0019` (one subject's queued work runs one at a time) |
 | `IEnqueueContextAccessor` | central `docs/0018`, the context flows with the async call and is null for a deferring train |
 | `Metadata.FailureClass`, the `failure_class` column, or `IFailureClassifier` | central `docs/0020`, and [0006](./docs/adr/0006-a-closed-vocabulary-is-a-postgres-enum.md) for how the enum is stored |

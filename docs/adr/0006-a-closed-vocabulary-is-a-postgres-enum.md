@@ -42,14 +42,16 @@ compare enum columns to those integers, not to the Postgres labels; the SQLite d
 the literals from the enums for that reason. The same holds for SQLite migrations: 009 stores
 `failure_class` as `INTEGER` defaulting to `0` (Unclassified), and 008's partial indexes filter on
 the integer values. Because SQLite's SQL and indexes depend on those integers, the enums they
-compare against pin their values explicitly (`TrainState` does, as do `WorkQueueStatus` and `FailureClass`), so
-reordering members cannot silently change what a stored row means. The in-memory provider stores the C# value and runs
-no SQL. Neither needs the Postgres mapping.
+compare against pin their values explicitly (`TrainState` does, as do `WorkQueueStatus` and
+`FailureClass`), so reordering members cannot silently change what a stored row means. The
+in-memory provider stores the C# value and runs no SQL. Neither needs the Postgres mapping.
 
 ## Exemplars
 
 - `PostgresEnumVocabularyTests` checks that the three mapping lists name the same enums, and that
   every mapped enum's members match the labels its migrations create and add.
+- `SqliteFailureClassStorageTests` pins each `FailureClass` member's integer, and checks that
+  SQLite stores the integer rather than the label.
 
 Not covered: the guard proves the vocabularies agree, not that a new value's migration shipped
 before the code that writes it. That ordering is a release decision no test in one repo can see.

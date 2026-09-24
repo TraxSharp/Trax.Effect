@@ -79,8 +79,14 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
     /// Gets the typed input that was passed to this train. Set before the chain
     /// runs, so it is available in all lifecycle hooks: <see cref="OnStarted"/>,
     /// <see cref="OnCompleted"/>, <see cref="OnFailed"/>, and <see cref="OnCancelled"/>.
-    /// Returns <c>default</c> before the train has been run.
     /// </summary>
+    /// <remarks>
+    /// Throws <see cref="ChainDeclarationException"/> while the chain is being read, because
+    /// <c>Junctions()</c> is then run to record its declaration and no input exists. Returns
+    /// <c>default</c> whenever the train has no metadata carrying an input, which includes
+    /// <see cref="QueueSubjectKey"/> and <see cref="OnQueue"/>: they are called on an instance
+    /// that has not run, so read the input from their <c>metadata</c> argument instead.
+    /// </remarks>
     protected TIn TrainInput =>
         IsDeclaringChain ? throw new ChainDeclarationException(TrainName, nameof(TrainInput))
         : Metadata is not null && Metadata.GetInputObject() is TIn typed ? typed
@@ -92,6 +98,12 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
     /// <see cref="OnStarted"/>, <see cref="OnFailed"/>, and <see cref="OnCancelled"/>
     /// because the train either hasn't run yet, failed before producing output, or was cancelled.
     /// </summary>
+    /// <remarks>
+    /// Throws <see cref="ChainDeclarationException"/> while the chain is being read, because
+    /// <c>Junctions()</c> is then run to record its declaration and no output exists. Returns
+    /// <c>default</c> in <see cref="QueueSubjectKey"/> and <see cref="OnQueue"/>, which are
+    /// called on an instance that has not run and has no metadata.
+    /// </remarks>
     protected TOut TrainOutput =>
         IsDeclaringChain ? throw new ChainDeclarationException(TrainName, nameof(TrainOutput))
         : Metadata is not null && Metadata.GetOutputObject() is TOut typed ? typed

@@ -69,6 +69,9 @@ thing with the reason attached, rather than three call sites that each have to r
 
 - `CancelledOutcomePersistenceTests` pins both halves: a train stopped by the caller's token persists
   `Cancelled` with an `EndTime`, and a train whose work completed anyway persists `Completed`.
+- `OutcomeSaveFailureTests` pins what happens when the terminal save throws: a completed run
+  propagates the save error without being recorded as `Failed`, and a failed run propagates its
+  own exception and fires `OnFailed` once.
 - [Cancellation Tokens](/docs/cross-cutting/cancellation-tokens) is the rule this produces.
 
 Not covered: nothing stops a new terminal-path write from taking `CancellationToken` directly

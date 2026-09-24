@@ -90,6 +90,12 @@ public class WorkQueue : IModel
     /// than the hook's side-effect being left with no entry at all.
     ///
     /// Dispatch gates on this, so an unconfirmed entry is never claimed.
+    ///
+    /// Only <see cref="Create"/> sets it. An entry built with the parameterless constructor
+    /// (<c>new WorkQueue { ... }</c>) leaves it null, and EF writes that null explicitly, so the
+    /// column's database default does not apply: the entry is saved as staged, is never
+    /// dispatched, and is eventually cancelled by the stale-staged sweep. Build entries with
+    /// <see cref="Create"/>, or set this yourself.
     /// </remarks>
     [Column("confirmed_at")]
     public DateTime? ConfirmedAt { get; set; }
@@ -202,6 +208,11 @@ public class WorkQueue : IModel
 
     #endregion
 
+    /// <summary>
+    /// For deserialization and EF. Leaves <see cref="ConfirmedAt"/> null, so an entry built with
+    /// it and saved is treated as staged and never dispatched; use <see cref="Create"/> to build
+    /// a new entry.
+    /// </summary>
     [JsonConstructor]
     public WorkQueue() { }
 }

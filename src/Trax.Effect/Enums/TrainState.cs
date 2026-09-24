@@ -13,8 +13,7 @@ namespace Trax.Effect.Enums;
 /// 2. Determining which trains need attention (e.g., failed trains)
 /// 3. Understanding the overall health of the train system
 /// 4. Tracking the progress of long-running trains
-/// </remarks>
-/// <remarks>
+///
 /// The values are pinned because SQLite stores the integer, and its dispatch SQL and partial
 /// indexes compare against it; reordering the members would silently change what they match.
 /// </remarks>
