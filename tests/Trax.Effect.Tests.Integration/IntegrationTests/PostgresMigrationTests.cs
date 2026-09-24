@@ -1,4 +1,5 @@
 using DbUp;
+using DbUp.Postgresql;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Npgsql;
@@ -110,7 +111,11 @@ public class PostgresMigrationTests
             using (var reader = new StreamReader(stream))
                 script = await reader.ReadToEndAsync();
 
-            var statements = SplitStatements(script);
+            // Split exactly as production does: DatabaseMigrator hands the connection string to
+            // PostgresqlDatabase, which runs each script through this manager's splitter.
+            var statements = new PostgresqlConnectionManager(connectionString)
+                .SplitScriptIntoCommands(script)
+                .ToList();
             statements.Should().HaveCountGreaterThan(1);
 
             await using var connection = new NpgsqlConnection(connectionString);
@@ -159,15 +164,6 @@ public class PostgresMigrationTests
         var file = resourceName[(resourceName.IndexOf(".Migrations.") + ".Migrations.".Length)..];
         return int.Parse(file[..file.IndexOf('_')]);
     }
-
-    // DbUp sends each statement separately; the script has no semicolons inside comments or
-    // literals, so dropping comment lines and splitting at semicolons yields the same statements.
-    private static List<string> SplitStatements(string script) =>
-        string.Join("\n", script.Split('\n').Where(line => !line.TrimStart().StartsWith("--")))
-            .Split(';')
-            .Select(statement => statement.Trim())
-            .Where(statement => statement.Length > 0)
-            .ToList();
 
     private static async Task Exec(NpgsqlConnection connection, string sql)
     {
