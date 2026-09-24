@@ -856,9 +856,10 @@ namespace Trax.Effect.Models.WorkQueue
     public class WorkQueue : Trax.Effect.Models.IModel
     {
         public const int MaxPriority = 31;
+        public const int MaxSubjectKeyLength = 512;
         public const int MinPriority = 0;
         [System.Text.Json.Serialization.JsonConstructor]
-        public WorkQueue() { }
+        protected WorkQueue() { }
         [System.ComponentModel.DataAnnotations.Schema.Column("confirmed_at")]
         public System.DateTime? ConfirmedAt { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("created_at")]

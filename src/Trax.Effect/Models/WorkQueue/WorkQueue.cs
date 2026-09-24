@@ -21,6 +21,14 @@ public class WorkQueue : IModel
     public const int MinPriority = 0;
     public const int MaxPriority = 31;
 
+    /// <summary>
+    /// The longest <see cref="SubjectKey"/> an entry accepts. Well inside the Postgres btree entry
+    /// limit even when every character takes three bytes, the most a UTF-16 unit encodes to. A key
+    /// too long for the index inserts fine while queued and then fails the claim on every
+    /// dispatch cycle, so it is refused when the entry is created.
+    /// </summary>
+    public const int MaxSubjectKeyLength = 512;
+
     #region Columns
 
     [Column("id")]
@@ -91,11 +99,13 @@ public class WorkQueue : IModel
     ///
     /// Dispatch gates on this, so an unconfirmed entry is never claimed.
     ///
-    /// Only <see cref="Create"/> sets it. An entry built with the parameterless constructor
-    /// (<c>new WorkQueue { ... }</c>) leaves it null, and EF writes that null explicitly, so the
-    /// column's database default does not apply: the entry is saved as staged, is never
-    /// dispatched, and is eventually cancelled by the stale-staged sweep. Build entries with
-    /// <see cref="Create"/>, or set this yourself.
+    /// Only <see cref="Create"/> sets it, which is why <see cref="Create"/> is the only way to
+    /// build an entry: EF writes this column explicitly, so an entry saved with it null does not
+    /// get the column's database default. It is treated as staged, is never dispatched, and is
+    /// eventually cancelled by the stale-staged sweep.
+    ///
+    /// Entries dispatched before this column existed may also be null. Nothing reads it on a
+    /// dispatched entry.
     /// </remarks>
     [Column("confirmed_at")]
     public DateTime? ConfirmedAt { get; set; }
@@ -180,8 +190,28 @@ public class WorkQueue : IModel
     /// <summary>
     /// Creates a new WorkQueue entry with Queued status.
     /// </summary>
+    /// <exception cref="ArgumentException">
+    /// <see cref="CreateWorkQueue.SubjectKey"/> is empty, or longer than
+    /// <see cref="MaxSubjectKeyLength"/>.
+    /// </exception>
     public static WorkQueue Create(CreateWorkQueue dto)
     {
+        // Empty is refused rather than treated as a subject: every entry carrying it would be
+        // serialized against every other, and it is almost always an unset identity.
+        if (dto.SubjectKey is { Length: 0 })
+            throw new ArgumentException(
+                "A subject key cannot be empty. Leave it null when the entry should not be "
+                    + "serialized.",
+                nameof(dto)
+            );
+
+        if (dto.SubjectKey is { Length: > MaxSubjectKeyLength })
+            throw new ArgumentException(
+                $"A subject key of {dto.SubjectKey.Length} characters is over the limit of "
+                    + $"{MaxSubjectKeyLength}. Use a record identity, or a hash of a longer one.",
+                nameof(dto)
+            );
+
         return new WorkQueue
         {
             ExternalId = Guid.NewGuid().ToString("N"),
@@ -209,10 +239,10 @@ public class WorkQueue : IModel
     #endregion
 
     /// <summary>
-    /// For deserialization and EF. Leaves <see cref="ConfirmedAt"/> null, so an entry built with
-    /// it and saved is treated as staged and never dispatched; use <see cref="Create"/> to build
-    /// a new entry.
+    /// For deserialization, EF and the EF configuration subclass only. Not public because an entry
+    /// built with it leaves <see cref="ConfirmedAt"/> null and would be saved as staged and never
+    /// dispatched; build a new entry with <see cref="Create"/>.
     /// </summary>
     [JsonConstructor]
-    public WorkQueue() { }
+    protected WorkQueue() { }
 }

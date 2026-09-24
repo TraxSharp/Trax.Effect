@@ -112,10 +112,7 @@ namespace Trax.Effect.Data.Models.SchedulerConfig
 }
 namespace Trax.Effect.Data.Models.WorkQueue
 {
-    public class PersistentWorkQueue : Trax.Effect.Models.WorkQueue.WorkQueue
-    {
-        public PersistentWorkQueue() { }
-    }
+    public class PersistentWorkQueue : Trax.Effect.Models.WorkQueue.WorkQueue { }
 }
 namespace Trax.Effect.Data.Services.DataContext
 {
