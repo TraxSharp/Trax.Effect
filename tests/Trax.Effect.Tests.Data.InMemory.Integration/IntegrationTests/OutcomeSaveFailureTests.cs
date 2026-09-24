@@ -60,7 +60,8 @@ public class OutcomeSaveFailureTests : TestSetup
             .Metadata!.TrainState.Should()
             .NotBe(
                 TrainState.Failed,
-                "0005 says the work happened, so recording that it failed would be false"
+                "0005-a-trains-outcome-is-recorded-on-an-uncancellable-token.md says the work "
+                    + "happened, so recording that it failed would be false"
             );
         Probe.OnFailedCalls.Should().Be(0);
         Probe.OnCompletedCalls.Should().Be(0, "the outcome was never recorded");
@@ -82,7 +83,8 @@ public class OutcomeSaveFailureTests : TestSetup
             .Which.Should()
             .BeSameAs(
                 FailingTrain.Failure,
-                "the caller needs to learn why the train failed, not why the bookkeeping did"
+                "0005-a-trains-outcome-is-recorded-on-an-uncancellable-token.md says the caller "
+                    + "learns why the train failed, not why the bookkeeping did"
             );
         Probe.OnFailedCalls.Should().Be(1);
         Probe.OnFailedException.Should().BeSameAs(FailingTrain.Failure);

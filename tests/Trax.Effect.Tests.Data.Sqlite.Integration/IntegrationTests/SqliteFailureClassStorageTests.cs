@@ -37,7 +37,8 @@ public class SqliteFailureClassStorageTests : TestSetup
                     ["Conflict"] = 2,
                     ["Permanent"] = 3,
                 },
-                "SQLite rows hold these integers; changing one reinterprets rows already written"
+                "0006-a-closed-vocabulary-is-a-postgres-enum.md pins these because SQLite rows "
+                    + "hold the integers; changing one reinterprets rows already written"
             );
     }
 
@@ -77,6 +78,12 @@ public class SqliteFailureClassStorageTests : TestSetup
             )
             .SingleAsync();
 
-        stored.Should().Be(2, "SQLite stores FailureClass.Conflict as the integer 2");
+        stored
+            .Should()
+            .Be(
+                2,
+                "0006-a-closed-vocabulary-is-a-postgres-enum.md: SQLite stores "
+                    + "FailureClass.Conflict as the integer 2"
+            );
     }
 }
