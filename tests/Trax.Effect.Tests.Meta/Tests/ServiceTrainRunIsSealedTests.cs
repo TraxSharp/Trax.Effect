@@ -7,7 +7,8 @@ namespace Trax.Effect.Tests.Meta.Tests;
 /// <summary>
 /// A service train does its work in <c>Junctions()</c> and nowhere else, so no <c>Run</c> on
 /// <see cref="ServiceTrain{TIn,TOut}"/> can be overridden. An override bypasses the metadata row,
-/// the lifecycle hooks and the outcome write that <c>Run</c> owns.
+/// the lifecycle hooks and the outcome write that <c>Run</c> owns. <c>NewMonad</c>, which builds
+/// the monad the chain runs on, is closed the same way.
 ///
 /// <para>Enforces <c>docs/adr/0009-a-service-train-does-its-work-in-junctions.md</c>.</para>
 /// </summary>
@@ -63,6 +64,26 @@ public class ServiceTrainRunIsSealedTests
             .BeTrue(
                 $"{Adr}: it overrides Train.Run, which stays virtual, so sealing it here is what "
                     + "stops a service train overriding it"
+            );
+    }
+
+    [Test]
+    public void NewMonad_is_a_sealed_override()
+    {
+        var newMonad = typeof(ServiceTrain<,>).GetMethod(
+            "NewMonad",
+            BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly
+        );
+
+        newMonad.Should().NotBeNull();
+        newMonad!
+            .IsFamily.Should()
+            .BeTrue("Core declares it protected, and an override keeps that");
+        newMonad
+            .IsFinal.Should()
+            .BeTrue(
+                $"{Adr}: it hands the chain its monad, so a service train that replaced it would "
+                    + "run Junctions() on something Run does not control"
             );
     }
 }

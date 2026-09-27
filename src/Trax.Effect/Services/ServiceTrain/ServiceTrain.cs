@@ -460,9 +460,10 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
 
     /// <summary>
     /// Supplies the container alongside the train, so junctions named by the chain resolve
-    /// through dependency injection rather than needing a parameterless constructor.
+    /// through dependency injection rather than needing a parameterless constructor. Sealed with
+    /// <c>Run</c>: the monad is what the chain runs on, so a service train does not replace it.
     /// </summary>
-    protected override Monad<TIn, TOut> NewMonad() =>
+    protected sealed override Monad<TIn, TOut> NewMonad() =>
         new(this, ServiceProvider!, CancellationToken);
 
     public void Dispose()

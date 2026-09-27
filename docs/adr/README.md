@@ -57,4 +57,4 @@ The format is `.claude/skills/recording-decisions/ADR-FORMAT.md`.
 | [0005](./0005-a-trains-outcome-is-recorded-on-an-uncancellable-token.md) | A train's outcome is recorded on a token the caller cannot cancel | platform, data-model |
 | [0006](./0006-a-closed-vocabulary-is-a-postgres-enum.md) | A closed vocabulary Trax persists is a Postgres enum | data-model, migrations, providers |
 | [0008](./0008-per-user-data-is-filtered-by-its-owner.md) | Per-user data is scoped by a row filter that reads the principal, and exposed as a bare [TraxAuthorize] | auth, data-model |
-| [0009](./0009-a-service-train-does-its-work-in-junctions.md) | A service train does its work in Junctions(), and its Run cannot be overridden | platform |
+| [0009](./0009-a-service-train-does-its-work-in-junctions.md) | A service train does its work in Junctions(), and neither its Run nor its NewMonad can be overridden | platform |
