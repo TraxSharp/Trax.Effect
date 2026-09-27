@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Trax.Effect.Configuration.TraxEffectConfiguration;
@@ -193,7 +195,7 @@ public class WorkQueue : IModel
     /// Creates a new WorkQueue entry with Queued status.
     /// </summary>
     /// <exception cref="ArgumentException">
-    /// <see cref="CreateWorkQueue.SubjectKey"/> is empty or whitespace, or longer than
+    /// <see cref="CreateWorkQueue.SubjectKey"/> is empty or whitespace, contains an unpaired surrogate, or is longer than
     /// <see cref="MaxSubjectKeyLength"/> characters.
     /// </exception>
     public static WorkQueue Create(CreateWorkQueue dto)
@@ -231,13 +233,25 @@ public class WorkQueue : IModel
             );
 
         // Counting UTF-16 units would refuse a key of 300 emoji, which is 300 characters to
-        // whoever wrote it. An unpaired surrogate counts as one character.
-        if (key.Length <= MaxSubjectKeyLength)
-            return;
-
+        // whoever wrote it. An unpaired surrogate is refused rather than counted: the database
+        // encodes the key as UTF-8, which has no encoding for half a character, so the insert
+        // would fail later and far from the caller.
         var characters = 0;
-        foreach (var _ in key.EnumerateRunes())
-            characters++;
+        for (var position = 0; position < key.Length; characters++)
+        {
+            if (
+                Rune.DecodeFromUtf16(key.AsSpan(position), out _, out var consumed)
+                != OperationStatus.Done
+            )
+                throw new ArgumentException(
+                    $"A subject key cannot contain an unpaired surrogate at position {position}. "
+                        + "It is half of a character, which cannot be stored; the key was likely "
+                        + "cut in the middle of one.",
+                    paramName
+                );
+
+            position += consumed;
+        }
 
         if (characters > MaxSubjectKeyLength)
             throw new ArgumentException(

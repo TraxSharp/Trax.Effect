@@ -118,6 +118,42 @@ public class WorkQueueCreateTests
             );
     }
 
+    // Built in code rather than passed through [TestCase]: attribute arguments are stored as UTF-8,
+    // which turns a lone surrogate into U+FFFD before the test ever sees it.
+    private static IEnumerable<TestCaseData> LoneSurrogates()
+    {
+        yield return new TestCaseData("order:" + '\uD800' + "x", 6).SetName("A high half");
+        yield return new TestCaseData("order:" + '\uDC00', 6).SetName("A low half at the end");
+        yield return new TestCaseData(new string('\uD83D', 1), 0).SetName("Only a high half");
+        yield return new TestCaseData("order:" + '\uDE00' + '\uD83D', 6).SetName(
+            "Two halves in the wrong order"
+        );
+    }
+
+    [TestCaseSource(nameof(LoneSurrogates))]
+    public void Create_WithALoneSurrogate_IsRefused(string key, int index)
+    {
+        var act = () => WorkQueue.Create(new CreateWorkQueue { TrainName = "T", SubjectKey = key });
+
+        act.Should()
+            .Throw<ArgumentException>()
+            .WithMessage(
+                $"*unpaired surrogate at position {index}*",
+                "the database encodes the key as UTF-8, which has no encoding for half a "
+                    + "character, so the insert would fail far from the caller"
+            );
+    }
+
+    [Test]
+    public void Create_WithAPairedSurrogate_KeepsIt()
+    {
+        var entry = WorkQueue.Create(
+            new CreateWorkQueue { TrainName = "T", SubjectKey = "order:\U0001F600" }
+        );
+
+        entry.SubjectKey.Should().Be("order:\U0001F600");
+    }
+
     [Test]
     public void AnEntry_RoundTripsThroughJson_WithoutAPublicConstructor()
     {
