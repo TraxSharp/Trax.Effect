@@ -61,6 +61,63 @@ public class WorkQueueCreateTests
             );
     }
 
+    [TestCase(" ")]
+    [TestCase("   ")]
+    [TestCase("\t\r\n")]
+    [TestCase("\u00A0\u3000")]
+    public void Create_WithAWhitespaceOnlyKey_IsRefused(string key)
+    {
+        var act = () => WorkQueue.Create(new CreateWorkQueue { TrainName = "T", SubjectKey = key });
+
+        act.Should()
+            .Throw<ArgumentException>()
+            .WithMessage(
+                "*cannot be empty or whitespace*",
+                "a blank key is an unset identity as surely as an empty one, and every entry "
+                    + "carrying it would be serialized against every other"
+            );
+    }
+
+    [Test]
+    public void Create_WithWhitespaceAroundAKey_KeepsItAsGiven()
+    {
+        var entry = WorkQueue.Create(
+            new CreateWorkQueue { TrainName = "T", SubjectKey = " customer-7 " }
+        );
+
+        entry.SubjectKey.Should().Be(" customer-7 ", "the key is opaque and compared exactly");
+    }
+
+    [Test]
+    public void Create_WithAKeyOfSurrogatePairsAtTheLimit_KeepsIt()
+    {
+        // Each emoji is one character but two UTF-16 units and four UTF-8 bytes.
+        var key = string.Concat(Enumerable.Repeat("\U0001F600", WorkQueue.MaxSubjectKeyLength));
+        key.Length.Should().Be(2 * WorkQueue.MaxSubjectKeyLength);
+
+        var entry = WorkQueue.Create(new CreateWorkQueue { TrainName = "T", SubjectKey = key });
+
+        entry
+            .SubjectKey.Should()
+            .Be(key, "the limit counts characters, not the UTF-16 units that encode them");
+    }
+
+    [Test]
+    public void Create_WithAKeyOfSurrogatePairsOverTheLimit_IsRefused()
+    {
+        var key = string.Concat(Enumerable.Repeat("\U0001F600", WorkQueue.MaxSubjectKeyLength + 1));
+
+        var act = () => WorkQueue.Create(new CreateWorkQueue { TrainName = "T", SubjectKey = key });
+
+        act.Should()
+            .Throw<ArgumentException>()
+            .WithMessage(
+                $"*{WorkQueue.MaxSubjectKeyLength + 1} characters*limit of "
+                    + $"{WorkQueue.MaxSubjectKeyLength}*",
+                "the message counts what the caller sees as characters"
+            );
+    }
+
     [Test]
     public void AnEntry_RoundTripsThroughJson_WithoutAPublicConstructor()
     {
