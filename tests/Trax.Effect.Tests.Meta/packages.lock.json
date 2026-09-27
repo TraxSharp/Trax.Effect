@@ -375,7 +375,7 @@
         "dependencies": {
           "NUnit": "[4.6.1, )",
           "Npgsql.EntityFrameworkCore.PostgreSQL": "[10.0.3, )",
-          "Trax.Core.Testing": "[1.7.2, )",
+          "Trax.Core.Testing": "[1.7.3, )",
           "Trax.Effect.Data": "[1.99.99, )"
         }
       },
@@ -624,11 +624,11 @@
       },
       "Trax.Core.Testing": {
         "type": "CentralTransitive",
-        "requested": "[1.7.2, )",
-        "resolved": "1.7.2",
-        "contentHash": "/+KY640Hv0aK4+ITlKhBnrZjWGbLY4qGGCsYyJgndj3yY7AZnqvSV/N2lr5NmYYCw1S+KFTMjSI0RfY6yeCFhg==",
+        "requested": "[1.7.3, )",
+        "resolved": "1.7.3",
+        "contentHash": "ju8k9iJhceaT56Axhl2IE6Aatczv/E65hUMJRzQGThqqI08xvwzlfdXLIcN/4ON8FG81oW0Oz7oaNHYmnFtANQ==",
         "dependencies": {
-          "Microsoft.CodeAnalysis.CSharp": "4.14.0",
+          "Microsoft.CodeAnalysis.CSharp": "5.9.0",
           "NUnit": "4.4.0"
         }
       }
