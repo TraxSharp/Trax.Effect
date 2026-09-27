@@ -8,10 +8,10 @@ namespace Trax.Effect.Data.Testing.Tests;
 /// the principal, and refuses every GraphQL posture on a per-user entity but a bare
 /// <c>[TraxAuthorize]</c>.
 ///
-/// <para>Enforces <c>docs/adr/0007-per-user-data-is-filtered-by-its-owner.md</c>.</para>
+/// <para>Enforces <c>docs/adr/0008-per-user-data-is-filtered-by-its-owner.md</c>.</para>
 /// </summary>
 [TestFixture]
-[Property("adr", "docs/adr/0007-per-user-data-is-filtered-by-its-owner.md")]
+[Property("adr", "docs/adr/0008-per-user-data-is-filtered-by-its-owner.md")]
 public class OwnerScopeCompletenessTests
 {
     private static readonly Dictionary<Type, string> AnswerIsNavigationScoped = new()
@@ -75,7 +75,7 @@ public class OwnerScopeCompletenessTests
         result
             .Offenders.Should()
             .ContainSingle(
-                "0007-per-user-data-is-filtered-by-its-owner.md: an "
+                "0008-per-user-data-is-filtered-by-its-owner.md: an "
                     + "owner key with no row filter serves every owner's rows to any caller"
             )
             .Which.Should()
