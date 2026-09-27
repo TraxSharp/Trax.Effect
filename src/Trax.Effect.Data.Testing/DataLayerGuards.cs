@@ -215,18 +215,41 @@ public static class DataLayerGuards
         var offenders = new List<string>();
         var perUser = new HashSet<Type>();
         var navigationOnly = new HashSet<Type>();
+        var exposedAndGatedByRoleOrPolicy = new HashSet<Type>();
         var inspected = 0;
 
-        foreach (
-            var entity in model
-                .GetEntityTypes()
-                .Where(e => !e.IsOwned())
-                .OrderBy(e => e.DisplayName(), StringComparer.Ordinal)
-        )
+        var entities = model
+            .GetEntityTypes()
+            .Where(e => !e.IsOwned())
+            .OrderBy(e => e.DisplayName(), StringComparer.Ordinal)
+            .ToList();
+
+        // A second mapping over a per-user table (a view or table mapping of the same name) reads
+        // the same rows, so it is per-user whatever its own keys say. Without this, an unfiltered
+        // alias of a filtered table would be invisible to the census.
+        var perUserStorage = entities
+            .Where(e =>
+                HasDirectOwnerKey(e, options)
+                || HasOwnerScopeFilter(e, options.PrincipalAccessorType)
+            )
+            .SelectMany(e => StorageOf(e).Select(storage => (storage, e)))
+            .GroupBy(x => x.storage, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.e).ToList(), StringComparer.Ordinal);
+
+        foreach (var entity in entities)
         {
             var clr = entity.ClrType;
             var name = entity.DisplayName();
-            var hasOwnerKey = HasOwnerKey(entity, options);
+            var sharedWith = StorageOf(entity)
+                .SelectMany(storage =>
+                    perUserStorage.TryGetValue(storage, out var owners)
+                        ? owners
+                            .Where(o => o.GetRootType() != entity.GetRootType())
+                            .Select(o => $"{o.DisplayName()} ({storage})")
+                        : []
+                )
+                .ToList();
+            var hasOwnerKey = HasDirectOwnerKey(entity, options) || sharedWith.Count > 0;
             var hasOwnerFilter = HasOwnerScopeFilter(entity, options.PrincipalAccessorType);
 
             if (!hasOwnerKey && !hasOwnerFilter)
@@ -243,10 +266,16 @@ public static class DataLayerGuards
 
             if (hasOwnerKey && !hasOwnerFilter)
                 offenders.Add(
-                    $"{name}: holds per-user data (an owner key to {options.OwnerType.Name}) but "
-                        + $"has no HasQueryFilter that reads {options.PrincipalAccessorType.Name}. "
-                        + "Every authenticated caller can read every owner's rows. Add the "
-                        + "owner-scope filter, or exempt it with a reason."
+                    $"{name}: holds per-user data ("
+                        + (
+                            sharedWith.Count > 0
+                                ? "it reads the same storage as " + string.Join(", ", sharedWith)
+                                : $"an owner key to {options.OwnerType.Name}"
+                        )
+                        + $") but has no HasQueryFilter that reads "
+                        + $"{options.PrincipalAccessorType.Name}. Every caller who passes its "
+                        + "authorization can read every owner's rows. Add the owner-scope filter, "
+                        + "or exempt it with a reason."
                 );
 
             if (clr.GetCustomAttribute<TraxQueryModelAttribute>(inherit: true) is null)
@@ -272,12 +301,15 @@ public static class DataLayerGuards
                     $"{name}: per-user [TraxQueryModel] without [TraxAuthorize]. Add a bare "
                         + "[TraxAuthorize]; the row filter does the per-owner narrowing."
                 );
+            else if (gates.Length > 0 && options.Gated.ContainsKey(clr))
+                exposedAndGatedByRoleOrPolicy.Add(clr);
             else if (gates.Length > 0)
                 offenders.Add(
                     $"{name}: per-user [TraxQueryModel] gated by [TraxAuthorize("
                         + string.Join("), [TraxAuthorize(", gates)
                         + ")], which locks owners without it out of their own rows. Use a bare "
-                        + "[TraxAuthorize]; the row filter is the access control."
+                        + "[TraxAuthorize]; the row filter is the access control. If the gate is "
+                        + "deliberate, list it in Gated with a reason; the filter is still required."
                 );
         }
 
@@ -332,6 +364,45 @@ public static class DataLayerGuards
                 );
         }
 
+        foreach (var (type, reason) in options.Gated.OrderBy(g => g.Key.FullName))
+        {
+            if (string.IsNullOrWhiteSpace(reason))
+                offenders.Add(
+                    $"{type.Name}: gated with no reason. Say who the role or policy is for."
+                );
+
+            if (options.Exemptions.ContainsKey(type))
+                offenders.Add(
+                    $"{type.Name}: both gated and exempted. An exemption skips the filter check, "
+                        + "so the pair would let the gate stand in for the filter. A gate adds to "
+                        + "the filter; remove the exemption."
+                );
+            else if (
+                !exposedAndGatedByRoleOrPolicy.Contains(type)
+                && !IsAnonymousOrUndeclaredExposure(type)
+            )
+                offenders.Add(
+                    $"{type.Name}: gated ({reason}) but it is not a per-user [TraxQueryModel] "
+                        + "whose [TraxAuthorize] names a role or policy, so the entry allows "
+                        + "nothing today and would silently allow whatever it becomes. Remove it."
+                );
+            else if (!exposedAndGatedByRoleOrPolicy.Contains(type))
+                offenders.Add(
+                    $"{type.Name}: gated ({reason}), but a gate is added to [TraxAuthorize], never "
+                        + "used in place of it. The posture reported for it still has to be fixed."
+                );
+
+            bool IsAnonymousOrUndeclaredExposure(Type t)
+            {
+                if (!perUser.Contains(t) || options.Exemptions.ContainsKey(t))
+                    return false;
+                if (t.GetCustomAttribute<TraxQueryModelAttribute>(inherit: true) is null)
+                    return false;
+                var posture = TraxAuthorization.Read(t);
+                return posture.AllowAnonymous || !posture.HasAuthorize;
+            }
+        }
+
         var message =
             "Every entity holding per-user data must be scoped to its owner by a HasQueryFilter "
             + $"that reads {options.PrincipalAccessorType.Name}, and a per-user [TraxQueryModel] "
@@ -342,7 +413,22 @@ public static class DataLayerGuards
         return new GuardResult(offenders, inspected, message);
     }
 
-    private static bool HasOwnerKey(IReadOnlyEntityType entity, OwnerScopeCensusOptions options) =>
+    /// <summary>
+    /// The tables and views an entity reads, schema-qualified. Two entity types naming the same one
+    /// read the same rows.
+    /// </summary>
+    private static IEnumerable<string> StorageOf(IReadOnlyEntityType entity)
+    {
+        if (entity.GetTableName() is { } table)
+            yield return $"{entity.GetSchema()}.{table}";
+        if (entity.GetViewName() is { } view)
+            yield return $"{entity.GetViewSchema() ?? entity.GetSchema()}.{view}";
+    }
+
+    private static bool HasDirectOwnerKey(
+        IReadOnlyEntityType entity,
+        OwnerScopeCensusOptions options
+    ) =>
         options.OwnerType.IsAssignableFrom(entity.ClrType)
         || entity
             .GetForeignKeys()

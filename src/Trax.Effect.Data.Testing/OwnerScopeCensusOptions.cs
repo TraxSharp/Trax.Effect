@@ -47,4 +47,14 @@ public sealed record OwnerScopeCensusOptions
     /// </summary>
     public IReadOnlyDictionary<Type, string> Exemptions { get; init; } =
         new Dictionary<Type, string>();
+
+    /// <summary>
+    /// Per-user <c>[TraxQueryModel]</c> entities allowed to carry a role or policy on their
+    /// <c>[TraxAuthorize]</c>, each with the reason. A gate only ever adds restriction: every
+    /// other check still applies, the principal-reading filter included, and
+    /// <c>[TraxAllowAnonymous]</c> or a missing <c>[TraxAuthorize]</c> is refused as before. An
+    /// entry is itself reported when its reason is blank, when the entity is also exempted, and
+    /// when it is stale: the entity is not per-user, is not exposed, or carries no role or policy.
+    /// </summary>
+    public IReadOnlyDictionary<Type, string> Gated { get; init; } = new Dictionary<Type, string>();
 }

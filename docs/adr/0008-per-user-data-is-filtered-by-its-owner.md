@@ -33,9 +33,17 @@ survives a renamed field or a rearranged predicate.
 key to the owner type, or the owner type itself. Scalar owner ids with no modelled foreign key are
 named explicitly by the consumer, and the default is none.
 
-**Allow a role or policy gate on a per-user entity.** Refused. The row filter is the access
-control; a gate on top can lock owners out of their own rows, and a policy can do it silently. An
-entity that really needs both is exempted with a written reason.
+**Allow a role or policy gate on a per-user entity freely.** Refused. The row filter is the access
+control; a gate on top can lock owners out of their own rows, and a policy can do it silently. A
+gate is allowed only when the consumer lists the entity in `Gated` with a reason, and a gated
+entity passes every other check as before: it still needs its principal-reading filter, and
+`[TraxAllowAnonymous]` or a missing `[TraxAuthorize]` is still refused. The gate is an AND on top of
+the filter, so it can only narrow who reads the rows.
+
+**Let a gate excuse the filter, the way an exemption does.** Refused, because that is the one way a
+gate could replace the filter: an admin-only role on an unfiltered entity serves every owner's rows
+to every admin. An entity cannot be both gated and exempted, since the exemption would skip the
+filter check the gate relies on.
 
 ## Consequences
 
@@ -45,6 +53,13 @@ of the census rather than fail it. The consumer declares such entities with a re
 runs in both directions. Exemptions also need a reason, and one naming an entity the census would
 not flag is reported, so a stale exemption cannot quietly cover whatever that entity becomes.
 
+`Gated` entries go stale the same way, and are reported when the entity is not per-user, is not a
+`[TraxQueryModel]`, or has a bare `[TraxAuthorize]`, and when an entry has no reason.
+
+A second entity type mapped to the same table or view as a per-user entity reads the same rows, so
+it is per-user whatever its own keys say, and needs the filter too. Without that rule an unfiltered
+view mapping over a filtered table, gated or not, would be invisible to the census.
+
 EF declares a filter on a hierarchy's root, so a derived type is judged by its root's filters.
 Owned types share their owner's filter and are skipped. A many-to-many join entity with a foreign
 key to the owner is reported like any other entity, and can be filtered through `UsingEntity`.
@@ -53,13 +68,20 @@ key to the owner is reported like any other entity, and can be filtered through 
 
 - `OwnerScopeCompletenessTests` covers each way an entity is recognised as per-user, the filter
   that does not count, a derived type, the navigation-scoped witness in both directions, each
-  refused GraphQL posture, and the exemption rules.
+  refused GraphQL posture, the exemption rules, the gated allowance (it never excuses the filter
+  or an anonymous or undeclared posture, and stale entries fail), and a view mapping over a
+  per-user table.
 - `DomainDataLayerGuardFixtureSelfTest` runs the census through the turnkey fixture the way a
   consumer would.
 
 Not covered: the guard proves a principal-reading filter exists, not that it is correct. A filter
-that reads the principal and compares the wrong column passes. Cross-user behavioural tests, one
-caller trying to read another's rows, are what catch that, and they are the consumer's to write.
+that reads the principal and compares the wrong column passes, and so does one with a bypass branch
+(`principal.IsAdmin || e.OwnerId == principal.Id`): paired with an admin gate, that entity serves
+every owner's rows to admins, by the filter's own design rather than the gate's. The census reads
+the model, not the code that queries it, so `IgnoreQueryFilters()` in a consumer's resolver or
+train, and an entity mapped with `ToSqlQuery` or to a function, are invisible to it. Trax's own
+query paths do not call `IgnoreQueryFilters()`. Cross-user behavioural tests, one caller trying to
+read another's rows, are what catch all of this, and they are the consumer's to write.
 
 ## Changelog
 

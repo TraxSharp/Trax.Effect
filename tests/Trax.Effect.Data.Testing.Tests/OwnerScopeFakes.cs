@@ -209,3 +209,66 @@ public sealed class PostureContext(
             .HasQueryFilter(n => n.AccountId == Principal.CurrentAccountId);
     }
 }
+
+[TraxQueryModel]
+[TraxAuthorize(Roles = "premium")]
+public class PremiumNote
+{
+    public int Id { get; set; }
+    public int AccountId { get; set; }
+    public Account Account { get; set; } = null!;
+}
+
+[TraxQueryModel]
+[TraxAuthorize(Roles = "admin")]
+public class NoteView
+{
+    public int Id { get; set; }
+    public int AccountId { get; set; }
+}
+
+/// <summary>A role-gated per-user entity that is also filtered through the principal.</summary>
+public sealed class GatedContext(DbContextOptions<GatedContext> options, IOwnerPrincipal principal)
+    : OwnerScopeContext(options, principal)
+{
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+        modelBuilder
+            .Entity<PremiumNote>()
+            .HasQueryFilter(n => n.AccountId == Principal.CurrentAccountId);
+    }
+}
+
+/// <summary>The same role-gated per-user entity with no row filter.</summary>
+public sealed class GatedUnfilteredContext(
+    DbContextOptions<GatedUnfilteredContext> options,
+    IOwnerPrincipal principal
+) : OwnerScopeContext(options, principal)
+{
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+        modelBuilder.Entity<PremiumNote>();
+    }
+}
+
+/// <summary>
+/// A filtered per-user table, and a second entity type reading the same rows through a view
+/// mapping with no filter and no owner key.
+/// </summary>
+public sealed class AliasedTableContext(
+    DbContextOptions<AliasedTableContext> options,
+    IOwnerPrincipal principal
+) : OwnerScopeContext(options, principal)
+{
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+        modelBuilder
+            .Entity<Note>()
+            .ToTable("notes")
+            .HasQueryFilter(n => n.AccountId == Principal.CurrentAccountId);
+        modelBuilder.Entity<NoteView>().ToView("notes");
+    }
+}

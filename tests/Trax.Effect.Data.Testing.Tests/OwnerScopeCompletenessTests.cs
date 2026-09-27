@@ -22,7 +22,8 @@ public class OwnerScopeCompletenessTests
     private static OwnerScopeCensusOptions Options(
         IReadOnlyDictionary<Type, string>? navigationScoped = null,
         IReadOnlyDictionary<Type, string>? exemptions = null,
-        IReadOnlySet<string>? ownerIdProperties = null
+        IReadOnlySet<string>? ownerIdProperties = null,
+        IReadOnlyDictionary<Type, string>? gated = null
     ) =>
         new()
         {
@@ -31,7 +32,11 @@ public class OwnerScopeCompletenessTests
             NavigationScoped = navigationScoped ?? new Dictionary<Type, string>(),
             Exemptions = exemptions ?? new Dictionary<Type, string>(),
             OwnerIdProperties = ownerIdProperties ?? new HashSet<string>(),
+            Gated = gated ?? new Dictionary<Type, string>(),
         };
+
+    private static Dictionary<Type, string> Gate(Type type, string reason = "a paid feature") =>
+        new() { [type] = reason };
 
     private static IModel ModelOf<TContext>()
         where TContext : DbContext
@@ -255,4 +260,165 @@ public class OwnerScopeCompletenessTests
 
         act.Should().Throw<ArgumentNullException>();
     }
+
+    #region Gated
+
+    [Test]
+    public void A_gated_entity_with_its_owner_filter_passes()
+    {
+        var result = DataLayerGuards.OwnerScopeCompleteness(
+            ModelOf<GatedContext>(),
+            Options(gated: Gate(typeof(PremiumNote)))
+        );
+
+        result.Passed.Should().BeTrue(result.FailureMessage);
+        result.Inspected.Should().Be(2, "Account and PremiumNote");
+    }
+
+    [Test]
+    public void A_role_gate_without_a_gated_entry_is_still_refused()
+    {
+        var result = DataLayerGuards.OwnerScopeCompleteness(ModelOf<GatedContext>(), Options());
+
+        result.Offenders.Should().ContainSingle().Which.Should().Contain("premium");
+    }
+
+    [Test]
+    public void A_gated_entity_still_needs_its_owner_filter()
+    {
+        var result = DataLayerGuards.OwnerScopeCompleteness(
+            ModelOf<GatedUnfilteredContext>(),
+            Options(gated: Gate(typeof(PremiumNote)))
+        );
+
+        result
+            .Offenders.Should()
+            .ContainSingle("the gate is added to the filter, never used in place of it")
+            .Which.Should()
+            .Contain("HasQueryFilter");
+    }
+
+    [Test]
+    public void Gating_never_admits_an_anonymous_or_undeclared_posture()
+    {
+        var result = DataLayerGuards.OwnerScopeCompleteness(
+            ModelOf<PostureContext>(),
+            Options(
+                gated: new Dictionary<Type, string>
+                {
+                    [typeof(AnonymousNote)] = "tries to excuse an anonymous posture",
+                    [typeof(UndeclaredNote)] = "tries to excuse a missing posture",
+                    [typeof(RoleGatedNote)] = "subscribers only",
+                    [typeof(PolicyGatedNote)] = "premium only",
+                }
+            )
+        );
+
+        result
+            .Offenders.Should()
+            .Contain(o => o.Contains(nameof(AnonymousNote)) && o.Contains("[TraxAllowAnonymous]"))
+            .And.Contain(o =>
+                o.Contains(nameof(UndeclaredNote)) && o.Contains("without [TraxAuthorize]")
+            )
+            .And.Contain(o => o.Contains(nameof(AnonymousNote)) && o.Contains("gated"))
+            .And.Contain(o => o.Contains(nameof(UndeclaredNote)) && o.Contains("gated"))
+            .And.NotContain(o => o.Contains(nameof(RoleGatedNote)))
+            .And.NotContain(o => o.Contains(nameof(PolicyGatedNote)));
+    }
+
+    [Test]
+    public void A_gated_entry_needs_a_reason()
+    {
+        var result = DataLayerGuards.OwnerScopeCompleteness(
+            ModelOf<GatedContext>(),
+            Options(gated: Gate(typeof(PremiumNote), " "))
+        );
+
+        result.Offenders.Should().ContainSingle().Which.Should().Contain("reason");
+    }
+
+    [Test]
+    public void A_gated_entry_for_a_bare_TraxAuthorize_is_stale()
+    {
+        var result = DataLayerGuards.OwnerScopeCompleteness(
+            ModelOf<ScopedContext>(),
+            Options(navigationScoped: AnswerIsNavigationScoped, gated: Gate(typeof(ExposedNote)))
+        );
+
+        result.Offenders.Should().ContainSingle().Which.Should().Contain(nameof(ExposedNote));
+    }
+
+    [Test]
+    public void A_gated_entry_for_an_entity_that_is_not_per_user_is_stale()
+    {
+        var result = DataLayerGuards.OwnerScopeCompleteness(
+            ModelOf<ScopedContext>(),
+            Options(
+                navigationScoped: AnswerIsNavigationScoped,
+                gated: Gate(typeof(PublishedArticle))
+            )
+        );
+
+        result.Offenders.Should().ContainSingle().Which.Should().Contain(nameof(PublishedArticle));
+    }
+
+    [Test]
+    public void A_gated_entry_for_an_entity_that_is_not_exposed_is_stale()
+    {
+        var result = DataLayerGuards.OwnerScopeCompleteness(
+            ModelOf<ScopedContext>(),
+            Options(navigationScoped: AnswerIsNavigationScoped, gated: Gate(typeof(Poll)))
+        );
+
+        result.Offenders.Should().ContainSingle().Which.Should().Contain(nameof(Poll));
+    }
+
+    [Test]
+    public void An_entity_cannot_be_both_gated_and_exempted()
+    {
+        var result = DataLayerGuards.OwnerScopeCompleteness(
+            ModelOf<GatedUnfilteredContext>(),
+            Options(
+                gated: Gate(typeof(PremiumNote)),
+                exemptions: new Dictionary<Type, string>
+                {
+                    [typeof(PremiumNote)] = "admin tooling reads it unfiltered",
+                }
+            )
+        );
+
+        result
+            .Offenders.Should()
+            .ContainSingle(
+                "an exemption skips the filter check, so combined with a gate it would let the gate "
+                    + "stand in for the filter"
+            )
+            .Which.Should()
+            .Contain("both");
+    }
+
+    #endregion
+
+    #region Shared storage
+
+    [Test]
+    public void An_entity_reading_a_per_user_table_through_another_mapping_is_per_user()
+    {
+        var result = DataLayerGuards.OwnerScopeCompleteness(
+            ModelOf<AliasedTableContext>(),
+            Options(gated: Gate(typeof(NoteView), "admin reporting"))
+        );
+
+        result
+            .Offenders.Should()
+            .ContainSingle(
+                "a second mapping over the same rows, with no filter, reads every owner's rows "
+                    + "whatever gate sits on it"
+            )
+            .Which.Should()
+            .Contain(nameof(NoteView))
+            .And.Contain("notes");
+    }
+
+    #endregion
 }
