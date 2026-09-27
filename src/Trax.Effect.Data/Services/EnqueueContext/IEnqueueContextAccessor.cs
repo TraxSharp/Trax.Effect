@@ -16,9 +16,11 @@ namespace Trax.Effect.Data.Services.EnqueueContext;
 /// deferral exists for hooks that write elsewhere.
 /// </para>
 /// <para>
-/// The value flows with the async call. Concurrent enqueues on one scope each see their own, and
-/// an enqueue started from inside a hook sees its own context, in its own transaction, until it
-/// returns.
+/// The value flows with the async call, so concurrent enqueues on one scope each see their own.
+/// An enqueue started from inside a hook joins the enqueue it runs inside: Trax.Mediator writes
+/// its entry on the outer enqueue's context and transaction, so it commits or rolls back with the
+/// outer one (Trax.Mediator docs/adr/0003). Only where there is no open outer transaction to join,
+/// such as inside a deferring train's hook, does it commit on a context of its own.
 /// </para>
 /// <para>
 /// Writes tracked on <see cref="Current"/> are saved and committed by the enqueue, so a hook that
@@ -44,4 +46,16 @@ public interface IEnqueueContextAccessor
     /// framework's enqueue path; consumers read <see cref="Current"/>.
     /// </summary>
     IDisposable Enter(IDataContext context);
+
+    /// <summary>
+    /// Makes <see cref="Current"/> null for the current async flow until the returned scope is
+    /// disposed, which restores whatever was current before. The enqueue path calls it around the
+    /// <c>OnQueue</c> hook of a train that defers promotion: that hook has no enqueue transaction to
+    /// join, even when the enqueue that runs it was started from inside another train's hook.
+    /// </summary>
+    /// <remarks>
+    /// Like <see cref="Enter"/>, it affects only the async flow that calls it and the work that flow
+    /// goes on to start. A concurrent enqueue on the same scope keeps its own context.
+    /// </remarks>
+    IDisposable Suppress();
 }
