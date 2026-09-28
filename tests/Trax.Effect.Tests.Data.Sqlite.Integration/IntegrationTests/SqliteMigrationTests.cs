@@ -52,6 +52,7 @@ public class SqliteMigrationTests
         "ix_work_queue_unique_queued_manifest",
         "ix_work_queue_scheduled_at",
         "ix_work_queue_manifest_id_status_queued",
+        "ix_work_queue_subject_queued",
         "ix_background_job_unfetched",
         "ix_runner_nonce_expires_at",
     ];
