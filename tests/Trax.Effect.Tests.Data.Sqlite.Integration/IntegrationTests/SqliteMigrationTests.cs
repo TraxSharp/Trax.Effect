@@ -15,6 +15,7 @@ public class SqliteMigrationTests
         "manifest",
         "manifest_group",
         "metadata",
+        "runner_nonce",
         "scheduler_config",
         "work_queue",
     ];
@@ -52,6 +53,7 @@ public class SqliteMigrationTests
         "ix_work_queue_scheduled_at",
         "ix_work_queue_manifest_id_status_queued",
         "ix_background_job_unfetched",
+        "ix_runner_nonce_expires_at",
     ];
 
     private static string CreateTempDbPath() =>
