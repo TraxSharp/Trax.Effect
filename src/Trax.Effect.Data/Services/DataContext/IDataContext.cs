@@ -110,6 +110,12 @@ public interface IDataContext : IEffectProvider, IAsyncDisposable
     /// </summary>
     DbSet<Effect.Models.PersistedOperationHistory.PersistedOperationHistory> PersistedOperationHistories { get; }
 
+    /// <summary>
+    /// Nonces Trax.Scheduler's runners accepted on signed requests, shared by every instance of a
+    /// runner on this database so a request is accepted once between them.
+    /// </summary>
+    DbSet<Effect.Models.RunnerNonce.RunnerNonce> RunnerNonces { get; }
+
     #endregion
 
     /// <summary>
