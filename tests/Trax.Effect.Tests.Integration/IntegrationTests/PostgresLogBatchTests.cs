@@ -46,6 +46,16 @@ public class PostgresLogBatchTests : TestSetup
         stored.Should().Be(11, "every entry, the long one included, is storable once truncated");
     }
 
+    [Test]
+    public async Task An_entry_Postgres_still_refuses_costs_only_its_own_line()
+    {
+        // A lone surrogate the caller logged, not one Trax's truncation made: the driver cannot
+        // encode it, so the batch fails and its entries are stored one at a time.
+        var stored = await LogOneBatch(bad: "half a character: \uD83D here");
+
+        stored.Should().Be(10, "only the entry the database refuses is lost");
+    }
+
     private async Task<int> LogOneBatch(string bad)
     {
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
