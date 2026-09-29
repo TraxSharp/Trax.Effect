@@ -14,7 +14,10 @@ namespace Trax.Effect.Tests.Data.InMemory.Integration.IntegrationTests;
 /// <c>AddLifecycleHook&lt;THook&gt;()</c> "resolves your hook's constructor dependencies from DI",
 /// and its documented use is audit logs and the like. A hook created for a run in a scope should
 /// get that scope's services, not the root container's.
+///
+/// <para>Enforces <c>docs/adr/0011-a-service-train-instance-is-one-run.md</c>.</para>
 /// </summary>
+[Property("adr", "docs/adr/0011-a-service-train-instance-is-one-run.md")]
 public class LifecycleHookScopeTests
 {
     private static readonly List<IDataContext> SeenContexts = [];
@@ -51,7 +54,7 @@ public class LifecycleHookScopeTests
             .Should()
             .NotBeSameAs(
                 SeenContexts[1],
-                "two runs in two scopes; a scoped IDataContext shared between them is a captive "
+                "0011-a-service-train-instance-is-one-run.md: two runs in two scopes; a scoped IDataContext shared between them is a captive "
                     + "root-scoped DbContext used concurrently by every train in the process"
             );
     }
@@ -68,7 +71,8 @@ public class LifecycleHookScopeTests
 
         await run.Should()
             .NotThrowAsync(
-                "the hook's dependency is registered, and the run has a scope to take it from"
+                "0011-a-service-train-instance-is-one-run.md: the hook's dependency is registered, "
+                    + "and the run has a scope to take it from"
             );
     }
 

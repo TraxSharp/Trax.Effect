@@ -1104,6 +1104,7 @@ namespace Trax.Effect.Services.LifecycleHookRunner
     public class LifecycleHookRunner : System.IDisposable, Trax.Effect.Services.LifecycleHookRunner.ILifecycleHookRunner
     {
         public LifecycleHookRunner(System.Collections.Generic.IEnumerable<Trax.Effect.Services.TrainLifecycleHookFactory.ITrainLifecycleHookFactory> hookFactories, Trax.Effect.Services.EffectRegistry.IEffectRegistry effectRegistry, Microsoft.Extensions.Logging.ILogger<Trax.Effect.Services.LifecycleHookRunner.LifecycleHookRunner>? logger = null) { }
+        public LifecycleHookRunner(System.Collections.Generic.IEnumerable<Trax.Effect.Services.TrainLifecycleHookFactory.ITrainLifecycleHookFactory> hookFactories, Trax.Effect.Services.EffectRegistry.IEffectRegistry effectRegistry, System.IServiceProvider serviceProvider, Microsoft.Extensions.Logging.ILogger<Trax.Effect.Services.LifecycleHookRunner.LifecycleHookRunner>? logger = null) { }
         public void Dispose() { }
         public System.Threading.Tasks.Task OnCancelled(Trax.Effect.Models.Metadata.Metadata metadata, System.Threading.CancellationToken ct) { }
         public System.Threading.Tasks.Task OnCompleted(Trax.Effect.Models.Metadata.Metadata metadata, System.Threading.CancellationToken ct) { }
@@ -1243,12 +1244,14 @@ namespace Trax.Effect.Services.TrainLifecycleHookFactory
     public interface ITrainLifecycleHookFactory
     {
         Trax.Effect.Services.TrainLifecycleHook.ITrainLifecycleHook Create();
+        Trax.Effect.Services.TrainLifecycleHook.ITrainLifecycleHook Create(System.IServiceProvider serviceProvider);
     }
     public class LifecycleHookFactory<THook> : Trax.Effect.Services.TrainLifecycleHookFactory.ITrainLifecycleHookFactory
         where THook :  class, Trax.Effect.Services.TrainLifecycleHook.ITrainLifecycleHook
     {
         public LifecycleHookFactory(System.IServiceProvider serviceProvider) { }
         public Trax.Effect.Services.TrainLifecycleHook.ITrainLifecycleHook Create() { }
+        public Trax.Effect.Services.TrainLifecycleHook.ITrainLifecycleHook Create(System.IServiceProvider scopeProvider) { }
     }
 }
 namespace Trax.Effect.Utils

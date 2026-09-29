@@ -30,6 +30,7 @@ if your work contradicts one, say so rather than silently overriding it.
 | `Metadata.FailureClass`, the `failure_class` column, or `IFailureClassifier` | central `docs/0020`, and [0006](./docs/adr/0006-a-closed-vocabulary-is-a-postgres-enum.md) for how the enum is stored |
 | `[TraxSensitive]`, `TraxRedaction`, or anything that serializes a train's input or output for storage | [0010](./docs/adr/0010-a-sensitive-field-is-marked-and-masked-where-it-is-written.md), a marked member is masked where its copy is written, opt-in, never by name |
 | `ServiceTrain.Run`, `SaveOutcome`, or anything on a train's terminal write | [0005](./docs/adr/0005-a-trains-outcome-is-recorded-on-an-uncancellable-token.md), the outcome is written on a token the caller cannot cancel |
+| running a train instance more than once, `AddSingletonTraxRoute`, or how lifecycle hooks are built | [0011](./docs/adr/0011-a-service-train-instance-is-one-run.md), a train instance is one run at a time and never a singleton, and hooks come from the run's scope |
 | overriding `ServiceTrain.Run` or `NewMonad`, or their modifiers | [0009](./docs/adr/0009-a-service-train-does-its-work-in-junctions.md), `Run` and `NewMonad` are sealed so `Junctions()` is the only way a service train does work |
 
 Decisions binding more than one repo live in the central corpus at `Trax.Docs/adr/`, whose
