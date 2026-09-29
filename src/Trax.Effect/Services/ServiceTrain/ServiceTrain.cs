@@ -302,6 +302,12 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
     /// Sealed, as are the other overloads: a service train does its work in <c>Junctions()</c>,
     /// and <c>Run</c> owns the metadata row, the lifecycle hooks and the outcome write around it.
     /// Trax.Effect's docs/adr/0009 records why.
+    ///
+    /// Each call records its own metadata row: running the same instance again starts a new
+    /// row, with a new <c>ExternalId</c> unless one was set for it, and leaves the previous run's
+    /// record as it was. An instance carries the state of the run in progress, so it runs one
+    /// execution at a time and is not shared between concurrent callers, which is why a service
+    /// train cannot be registered as a singleton.
     /// </remarks>
     /// <param name="input">The input data for the train</param>
     /// <param name="cancellationToken">Token to monitor for cancellation requests</param>
@@ -318,8 +324,18 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
         LifecycleHookRunner.AssertLoaded();
         ServiceProvider.AssertLoaded();
 
-        if (Metadata == null)
+        // Each Run is its own execution with its own row. A scoped instance resolved once and run
+        // twice would otherwise write the second run over the first's terminal row, losing the
+        // first outcome. Metadata the caller passed through an overload below is this run's row.
+        if (_metadataSuppliedForRun)
+            _metadataSuppliedForRun = false;
+        else
+        {
+            if (Metadata is not null)
+                ForgetPreviousRun();
+
             await this.InitializeServiceTrain();
+        }
 
         Metadata.AssertLoaded();
 
@@ -528,9 +544,26 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
         return EffectRunner.SaveChanges(CancellationToken.None);
     }
 
+    /// <summary>
+    /// Drops the previous run's row so the next run creates its own. The external id identifies a
+    /// run, so it is replaced too unless the caller already set a new one for this run.
+    /// </summary>
+    private void ForgetPreviousRun()
+    {
+        if (ExternalId == Metadata!.ExternalId)
+            ExternalId = Guid.NewGuid().ToString("N");
+
+        Metadata = null;
+    }
+
+    // Set by the overloads that take a pre-created row, and consumed by the Run they call, so that
+    // run uses the caller's row instead of starting a fresh one.
+    private bool _metadataSuppliedForRun;
+
     public async Task<TOut> Run(TIn input, Metadata metadata)
     {
         await this.InitializeServiceTrain(metadata);
+        _metadataSuppliedForRun = true;
         return await Run(input, CancellationToken);
     }
 
@@ -541,6 +574,7 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
     {
         CancellationToken = cancellationToken;
         await this.InitializeServiceTrain(metadata);
+        _metadataSuppliedForRun = true;
         return await Run(input, CancellationToken);
     }
 
