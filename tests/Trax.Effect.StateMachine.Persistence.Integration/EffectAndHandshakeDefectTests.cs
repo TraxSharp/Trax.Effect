@@ -1,6 +1,9 @@
 using System.Text.Json.Nodes;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
+using Trax.Effect.StateMachine.Persistence.Integration.Fakes;
 using Trax.Effect.StateMachine.Persistence.Integration.Fixtures;
+using Trax.Effect.StateMachine.Persistence.Mutations;
 
 namespace Trax.Effect.StateMachine.Persistence.Integration;
 
@@ -33,23 +36,83 @@ public sealed class SlowToBuildMachine : Machine<GateState, GateTrigger>
 
 public class EffectAndHandshakeDefectTests
 {
-    [Test]
-    public async Task An_effect_that_returns_a_null_receipt_must_not_run_again()
+    [TestCase(null)]
+    [TestCase("")]
+    public async Task An_effect_that_returns_no_receipt_fails_instead_of_being_recorded_in_flight(
+        string? receipt
+    )
     {
         var key = $"idem:{Guid.NewGuid()}";
         var calls = 0;
         Func<Task<string>> effect = () =>
         {
             Interlocked.Increment(ref calls);
-            return Task.FromResult<string>(null!);
+            return Task.FromResult(receipt!);
         };
 
-        await new IdempotentEffect(TestDb.NewClaims()).RunOnce(key, effect, TimeSpan.Zero);
-        // Complete wrote receipt = NULL, which the ledger reads as "claimed, in flight". Once the lease has
-        // passed, the next caller reclaims the key and delivers again.
-        await new IdempotentEffect(TestDb.NewClaims()).RunOnce(key, effect, TimeSpan.Zero);
-
+        // Completing with no receipt would leave the row looking claimed and in flight, and the next caller
+        // after the lease would quietly deliver again. The run is reported as failed instead.
+        var first = async () =>
+            await new IdempotentEffect(TestDb.NewClaims()).RunOnce(key, effect, TimeSpan.Zero);
+        await first
+            .Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage($"*{key}*receipt*");
         calls.Should().Be(1);
+
+        // The claim is released rather than left in flight, so nothing is waiting on a lease: a retry is a
+        // new, visible attempt (the caller was told the first failed), exactly as after an effect that threw.
+        (await TestDb.NewClaims().GetReceipt(key))
+            .Should()
+            .BeNull();
+        (await TestDb.NewClaims().TryClaim(key, TimeSpan.FromMinutes(5)))
+            .Should()
+            .BeOfType<ClaimResult.Won>("the failed run left no claim behind");
+    }
+
+    [Test]
+    public async Task A_send_whose_effect_returns_no_receipt_reports_delivery_failed_and_leaves_the_draft()
+    {
+        var id = Guid.NewGuid();
+        var registry = new SnapshotMachineRegistry(
+            new IMachine[] { new OrderMachine() },
+            TestDb.NewStore(),
+            TestDb.NewClaims(),
+            new IdempotentEffect(TestDb.NewClaims()),
+            new ServiceCollection()
+                .AddSingleton<IOrderCharge>(new NoReceiptCharge())
+                .BuildServiceProvider()
+        );
+        var user = new FakePrincipal("u");
+        (
+            await new SaveSnapshotJunction(registry, user).Run(
+                new SaveSnapshotInput
+                {
+                    Machine = "order",
+                    Id = id,
+                    Snapshot = OrderMachine.ReviewSnapshot(1),
+                }
+            )
+        ).Problem.Should().BeNull();
+
+        var send = await new SendSnapshotJunction(registry, user).Run(
+            new SendSnapshotInput { Machine = "order", Id = id }
+        );
+
+        send.Problem!.Code.Should().Be("delivery-failed");
+        (
+            await new LoadSnapshotJunction(registry, user).Run(
+                new LoadSnapshotInput { Machine = "order", Id = id }
+            )
+        )
+            .Snapshot.Should()
+            .Contain("\"state\":\"Review\"");
+    }
+
+    private sealed class NoReceiptCharge : IOrderCharge
+    {
+        public Task<string> Run(Snapshot snapshot, CancellationToken cancellationToken = default) =>
+            Task.FromResult<string>(null!);
     }
 
     [Test]
