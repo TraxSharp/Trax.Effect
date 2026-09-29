@@ -280,4 +280,33 @@ public class OwnerScopeFilterBypassTests
                 "the call applies to notes, whose set the scan cannot name, not to Articles"
             );
     }
+
+    [Test]
+    public void Passes_IgnoreQueryFilters_on_a_shared_set_reached_through_Set_after_a_lambda()
+    {
+        // The receiver is read past the lambda's argument list and the generic arguments, and a
+        // comparison inside the lambda is not taken for a generic argument list.
+        using var repo = RepoWith(
+            "public class R { public IQueryable<Article> Recent(DbContext db) =>\n"
+                + "    db.Set<Article>()\n        .Where(a => a.Id > 3 && a.Id < 9)\n"
+                + "        .IgnoreQueryFilters(); }"
+        );
+
+        var result = Scan(repo);
+
+        result.Passed.Should().BeTrue(result.FailureMessage);
+    }
+
+    [Test]
+    public void Flags_IgnoreQueryFilters_on_a_shared_set_whose_subquery_reads_a_per_user_set()
+    {
+        // The call switches filters off for the whole query, so the Notes subquery loses its
+        // owner scope even though the receiver is shared.
+        using var repo = RepoWith(
+            "public class R { public IQueryable<Article> Noted(AppDbContext db) => "
+                + "db.Articles.Where(a => db.Notes.Any(n => n.Id == a.Id)).IgnoreQueryFilters(); }"
+        );
+
+        Scan(repo).Offenders.Should().ContainSingle().Which.Should().Contain("Note");
+    }
 }
