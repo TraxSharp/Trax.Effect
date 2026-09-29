@@ -18,7 +18,12 @@ namespace Trax.Effect.Tests.Broadcaster.SignalR.IntegrationTests;
 /// <summary>
 /// The dispatcher runs inside the train's lifecycle hooks, which a train awaits inline. These tests use a
 /// real Kestrel socket, because the in-memory TestServer transport has no TCP backpressure.
+/// <para>Enforces <c>docs/adr/0012-the-signalr-sink-queues-events-and-drops-when-clients-fall-behind.md</c>.</para>
 /// </summary>
+[Property(
+    "adr",
+    "docs/adr/0012-the-signalr-sink-queues-events-and-drops-when-clients-fall-behind.md"
+)]
 public class SignalRSlowClientTests
 {
     private static TrainLifecycleEventMessage Failed(string reason) =>
@@ -67,7 +72,12 @@ public class SignalRSlowClientTests
             true,
             CancellationToken.None
         );
-        await Task.Delay(500);
+        // Read the handshake response, so the connection is registered with the hub before the
+        // client stops reading.
+        var handshake = new byte[256];
+        await socket
+            .ReceiveAsync(handshake, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(10));
 
         var dispatcher = app.Services.GetRequiredService<SignalRTrainEventDispatcher>();
         var reason = new string('x', 256 * 1024);
@@ -88,7 +98,8 @@ public class SignalRSlowClientTests
             .Should()
             .BeLessThan(
                 TimeSpan.FromSeconds(2),
-                "a connected client that stops reading must not hold the send (and the train awaiting it)"
+                "a connected client that stops reading must not hold the send (and the train awaiting it) "
+                    + "(docs/adr/0012-the-signalr-sink-queues-events-and-drops-when-clients-fall-behind.md)"
             );
 
         socket.Abort();
