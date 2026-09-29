@@ -1272,6 +1272,11 @@ namespace Trax.Effect.Utils
         public static System.Text.Json.JsonSerializerOptions JunctionLogging { get; set; }
         public static System.Text.Json.JsonSerializerOptions ManifestProperties { get; set; }
     }
+    public static class TraxLogSerialization
+    {
+        public const string OmittedProperty = "_omitted";
+        public static System.Text.Json.JsonSerializerOptions ForLogging(System.Text.Json.JsonSerializerOptions options) { }
+    }
     public static class TraxRedaction
     {
         public const string MarkerProperty = "_redacted";

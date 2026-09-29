@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Trax.Effect.Configuration.TraxEffectConfiguration;
 using Trax.Effect.Models.Log.DTOs;
+using Trax.Effect.Utils;
 
 namespace Trax.Effect.Models.Log;
 
@@ -90,7 +91,12 @@ public class Log : ILog
     }
 
     public override string ToString() =>
-        JsonSerializer.Serialize(this, TraxEffectConfiguration.StaticSystemJsonSerializerOptions);
+        JsonSerializer.Serialize(
+            this,
+            TraxLogSerialization.ForLogging(
+                TraxEffectConfiguration.StaticSystemJsonSerializerOptions
+            )
+        );
 
     #endregion
 
