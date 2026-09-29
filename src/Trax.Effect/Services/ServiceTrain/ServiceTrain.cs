@@ -13,6 +13,7 @@ using Trax.Effect.Models.Metadata;
 using Trax.Effect.Models.Metadata.DTOs;
 using Trax.Effect.Services.EffectRunner;
 using Trax.Effect.Services.JunctionEffectRunner;
+using Trax.Effect.Services.LifecycleHookOutputPolicy;
 using Trax.Effect.Services.LifecycleHookRunner;
 
 namespace Trax.Effect.Services.ServiceTrain;
@@ -472,26 +473,34 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
         await this.FinishServiceTrain(result);
         await SaveOutcome();
 
-        // Ensure output is available as serialized JSON for lifecycle hooks,
-        // even when SaveTrainParameters() is not configured. Runs AFTER
-        // SaveChanges() so it is NOT persisted to the database.
+        // Hooks read the output as serialized JSON. When the parameter effect wrote the stored
+        // copy they get that; otherwise one is built here, AFTER the outcome is saved so it is not
+        // persisted, through the same decision and ceiling as the stored copy: an output the host
+        // excluded is not serialized for the hooks either, and any copy is bounded, because the
+        // broadcaster, GraphQL and SignalR hooks publish it to other processes and subscribers.
         if (Metadata.Output is null)
         {
             var outputObject = Metadata.GetOutputObject();
-            if (outputObject is not null)
+            var ceiling = (
+                ServiceProvider.GetService(typeof(ILifecycleHookOutputPolicy))
+                    as ILifecycleHookOutputPolicy
+                ?? new DefaultLifecycleHookOutputPolicy()
+            ).MaxCopyBytes(TrainName);
+
+            if (outputObject is not null && ceiling is not null)
             {
                 try
                 {
-                    // Masked as the stored output is: hooks broadcast this to other
-                    // processes and subscribers.
-                    Metadata.Output = System.Text.Json.JsonSerializer.Serialize(
-                        (object)outputObject,
+                    // Masked as the stored output is.
+                    Metadata.Output = Utils.TraxBoundedJson.Serialize(
+                        outputObject,
                         Utils.TraxRedaction.WithRedaction(
                             Configuration
                                 .TraxEffectConfiguration
                                 .TraxEffectConfiguration
                                 .StaticSystemJsonSerializerOptions
-                        )
+                        ),
+                        ceiling
                     );
                 }
                 catch (Exception ex)

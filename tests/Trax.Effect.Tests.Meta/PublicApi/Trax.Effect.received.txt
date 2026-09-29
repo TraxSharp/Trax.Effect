@@ -1091,6 +1091,19 @@ namespace Trax.Effect.Services.JunctionEffectRunner
         public void Dispose() { }
     }
 }
+namespace Trax.Effect.Services.LifecycleHookOutputPolicy
+{
+    public sealed class DefaultLifecycleHookOutputPolicy : Trax.Effect.Services.LifecycleHookOutputPolicy.ILifecycleHookOutputPolicy
+    {
+        public const int DefaultMaxCopyBytes = 1048576;
+        public DefaultLifecycleHookOutputPolicy() { }
+        public int? MaxCopyBytes(string trainName) { }
+    }
+    public interface ILifecycleHookOutputPolicy
+    {
+        int? MaxCopyBytes(string trainName);
+    }
+}
 namespace Trax.Effect.Services.LifecycleHookRunner
 {
     public interface ILifecycleHookRunner : System.IDisposable
@@ -1268,6 +1281,11 @@ namespace Trax.Effect.Utils
         public SystemTypeConverter() { }
         public override System.Type? Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options) { }
         public override void Write(System.Text.Json.Utf8JsonWriter writer, System.Type value, System.Text.Json.JsonSerializerOptions options) { }
+    }
+    public static class TraxBoundedJson
+    {
+        public static string Serialize(object value, System.Text.Json.JsonSerializerOptions options, int? maxBytes) { }
+        public static string TruncatedPlaceholder(int maxBytes) { }
     }
     public static class TraxJsonSerializationOptions
     {

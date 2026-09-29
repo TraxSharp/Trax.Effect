@@ -12,6 +12,7 @@ using Trax.Effect.Services.EffectRegistry;
 using Trax.Effect.Services.EffectRunner;
 using Trax.Effect.Services.JunctionEffectProviderFactory;
 using Trax.Effect.Services.JunctionEffectRunner;
+using Trax.Effect.Services.LifecycleHookOutputPolicy;
 using Trax.Effect.Services.LifecycleHookRunner;
 using Trax.Effect.Services.ServiceTrain;
 using Trax.Effect.Services.TrainLifecycleHook;
@@ -85,6 +86,9 @@ public static class ServiceExtensions
         services.AddSingleton<TraxChangeSignal>();
         services.AddSingleton<ITraxChangeSignal>(sp => sp.GetRequiredService<TraxChangeSignal>());
         services.AddHostedService<ChangeSignalCoalescer>();
+
+        // SaveTrainParameters, configured above, registers its own policy first.
+        services.TryAddSingleton<ILifecycleHookOutputPolicy, DefaultLifecycleHookOutputPolicy>();
 
         return services
             .AddSingleton<IEffectRegistry>(registry)
