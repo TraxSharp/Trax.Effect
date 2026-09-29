@@ -9,12 +9,16 @@ using Trax.Effect.Data.InMemory.Extensions;
 using Trax.Effect.Data.Services.DataContext;
 using Trax.Effect.Data.Services.IDataContextFactory;
 using Trax.Effect.Extensions;
+using Trax.Effect.JunctionProvider.Logging.Extensions;
 using Trax.Effect.Models.Manifest;
 using Trax.Effect.Models.Manifest.DTOs;
 using Trax.Effect.Models.ManifestGroup;
 using Trax.Effect.Models.Metadata;
 using Trax.Effect.Models.Metadata.DTOs;
+using Trax.Effect.Models.WorkQueue;
+using Trax.Effect.Models.WorkQueue.DTOs;
 using Trax.Effect.Provider.Json.Extensions;
+using Trax.Effect.Services.EffectJunction;
 using Trax.Effect.Services.ServiceTrain;
 
 namespace Trax.Effect.Tests.Integration.IntegrationTests;
@@ -37,10 +41,15 @@ public class JsonEffectManifestPropertiesTests
         services.AddLogging(b => b.AddProvider(_logs).SetMinimumLevel(LogLevel.Trace));
         services.AddTrax(trax =>
             trax.AddEffects(effects =>
-                effects.SetEffectLogLevel(LogLevel.Information).UseInMemory().AddJson()
+                effects
+                    .SetEffectLogLevel(LogLevel.Information)
+                    .UseInMemory()
+                    .AddJson()
+                    .AddJunctionLogger(serializeJunctionData: true)
             )
         );
         services.AddScopedTraxRoute<IChargeTrain, ChargeTrain>();
+        services.AddScopedTraxRoute<ILoadQueueTrain, LoadQueueTrain>();
         _provider = services.BuildServiceProvider();
     }
 
@@ -102,6 +111,26 @@ public class JsonEffectManifestPropertiesTests
             );
     }
 
+    [Test]
+    public async Task A_junction_that_loads_queued_entries_does_not_log_their_inputs()
+    {
+        // The scheduler's own dispatcher is a train whose junction returns the queued entries,
+        // and AddJunctionLogger(serializeJunctionData: true) logs each junction's output.
+        using var scope = _provider.CreateScope();
+        var train = scope.ServiceProvider.GetRequiredService<ILoadQueueTrain>();
+        _logs.Lines.Clear();
+
+        await train.Run(Unit.Default);
+
+        _logs
+            .Lines.Should()
+            .NotContain(
+                line => line.Contains(Secret),
+                "a queued entry's input is the real value the train runs with, [TraxSensitive] "
+                    + "members included; a junction output that carries it must not log it"
+            );
+    }
+
     public sealed class ChargeInput : IManifestProperties
     {
         public string Customer { get; set; } = "";
@@ -117,6 +146,32 @@ public class JsonEffectManifestPropertiesTests
     }
 
     public interface IChargeTrain : IServiceTrain<ChargeInput, Unit> { }
+
+    public class LoadQueuedJunction : EffectJunction<Unit, List<WorkQueue>>
+    {
+        public override Task<List<WorkQueue>> Run(Unit input) =>
+            Task.FromResult(
+                new List<WorkQueue>
+                {
+                    WorkQueue.Create(
+                        new CreateWorkQueue
+                        {
+                            TrainName = typeof(IChargeTrain).FullName!,
+                            Input = $$"""{"customer":"ada","apiKey":"{{Secret}}"}""",
+                            InputTypeName = typeof(ChargeInput).FullName,
+                        }
+                    ),
+                }
+            );
+    }
+
+    private class LoadQueueTrain : ServiceTrain<Unit, List<WorkQueue>>, ILoadQueueTrain
+    {
+        protected override Task<Either<Exception, List<WorkQueue>>> Junctions() =>
+            Chain<LoadQueuedJunction>().Resolve();
+    }
+
+    public interface ILoadQueueTrain : IServiceTrain<Unit, List<WorkQueue>> { }
 
     private sealed class CapturingLoggerProvider : ILoggerProvider
     {
