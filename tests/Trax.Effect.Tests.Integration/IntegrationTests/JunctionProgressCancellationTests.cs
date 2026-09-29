@@ -16,7 +16,10 @@ namespace Trax.Effect.Tests.Integration.IntegrationTests;
 /// <summary>
 /// A run whose last junction finishes its work after the caller cancelled is recorded
 /// <c>Completed</c> (docs/adr/0005), with junction progress on as well as off.
+///
+/// <para>Enforces <c>docs/adr/0005-a-trains-outcome-is-recorded-on-an-uncancellable-token.md</c>.</para>
 /// </summary>
+[Property("adr", "docs/adr/0005-a-trains-outcome-is-recorded-on-an-uncancellable-token.md")]
 public class JunctionProgressCancellationTests
 {
     private ServiceProvider _provider = null!;
@@ -67,7 +70,7 @@ public class JunctionProgressCancellationTests
         row.TrainState.Should()
             .Be(
                 TrainState.Completed,
-                "docs/adr/0005 records work that finished despite the caller's cancellation as "
+                "0005-a-trains-outcome-is-recorded-on-an-uncancellable-token.md records work that finished despite the caller's cancellation as "
                     + "Completed; the progress write after the junction must not turn it into Cancelled"
             );
     }
