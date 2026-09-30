@@ -84,7 +84,7 @@ public class EffectCommitIntegrityTests
     }
 
     [Test]
-    public async Task A_send_after_a_refused_commit_replays_the_receipt_without_charging_again()
+    public async Task A_send_after_an_edit_during_the_effect_neither_charges_again_nor_commits_the_receipt_on_the_edit()
     {
         var id = await SeedReview(1);
         var charge = new GatedCharge();
@@ -97,11 +97,94 @@ public class EffectCommitIntegrityTests
 
         var retry = await Runner(charge).Run(User, id, "req-2");
 
-        retry.Should().BeOfType<AdvanceOutcome.Advanced>().Which.Snapshot.Context["receipt"]!
+        retry
+            .Should()
+            .BeOfType<AdvanceOutcome.Rejected>()
+            .Which.Reason.Should()
+            .Be("draft-changed", Adr);
+        charge.Calls.Should().Be(1, Adr);
+        var stored = await Stored(id);
+        stored.State.Should().Be("Review", Adr);
+        ItemCount(stored).Should().Be(2);
+        stored.Context["receipt"].Should().BeNull(Adr);
+    }
+
+    [Test]
+    public async Task A_send_after_the_draft_is_restored_to_what_the_effect_ran_on_replays_its_receipt()
+    {
+        var id = await SeedReview(1);
+        var charge = new GatedCharge();
+
+        var send = Task.Run(() => Runner(charge).Run(User, id, "req-1"));
+        await charge.Entered;
+        await Orders().Autosave(User, id, OrderMachine.ReviewSnapshot(1, 2));
+        charge.Release();
+        (await send).Should().BeOfType<AdvanceOutcome.Conflict>();
+        await Orders().Autosave(User, id, OrderMachine.ReviewSnapshot(1));
+
+        var retry = await Runner(charge).Run(User, id, "req-2");
+
+        var placed = retry.Should().BeOfType<AdvanceOutcome.Advanced>().Which.Snapshot;
+        placed.Context["receipt"]!.GetValue<string>().Should().Be("receipt-1");
+        ItemCount(placed).Should().Be(1);
+        charge.Calls.Should().Be(1, Adr);
+    }
+
+    [Test]
+    public async Task An_unedited_draft_whose_receipt_was_not_recorded_replays_it_on_the_next_send()
+    {
+        var id = await SeedReview(1);
+        var charge = new GatedCharge();
+        charge.Release();
+        var claims = TestDb.NewClaims();
+        var loaded = await Stored(id);
+        var fingerprint = SnapshotFingerprint.Of(Orders().Serialize(loaded));
+        var won = (ClaimResult.Won)
+            await claims.TryClaim(EffectKey(id), TimeSpan.FromMinutes(5), fingerprint);
+        (await claims.Complete(EffectKey(id), won.OwnerToken, "receipt-earlier")).Should().BeTrue();
+
+        var send = await Runner(charge).Run(User, id, "req-1");
+
+        send.Should().BeOfType<AdvanceOutcome.Advanced>().Which.Snapshot.Context["receipt"]!
             .GetValue<string>()
             .Should()
-            .Be("receipt-1");
-        charge.Calls.Should().Be(1, Adr);
+            .Be("receipt-earlier");
+        charge.Calls.Should().Be(0, Adr);
+    }
+
+    [Test]
+    public async Task A_claim_recorded_without_a_fingerprint_replays_its_receipt_as_before()
+    {
+        var id = await SeedReview(1, 2, 3);
+        var charge = new GatedCharge();
+        charge.Release();
+        var claims = TestDb.NewClaims();
+        var won = (ClaimResult.Won)await claims.TryClaim(EffectKey(id), TimeSpan.FromMinutes(5));
+        (await claims.Complete(EffectKey(id), won.OwnerToken, "receipt-legacy")).Should().BeTrue();
+
+        var send = await Runner(charge).Run(User, id, "req-1");
+
+        send.Should().BeOfType<AdvanceOutcome.Advanced>().Which.Snapshot.Context["receipt"]!
+            .GetValue<string>()
+            .Should()
+            .Be("receipt-legacy");
+        charge.Calls.Should().Be(0, Adr);
+    }
+
+    [Test]
+    public async Task The_claim_records_the_fingerprint_of_the_content_the_effect_ran_on()
+    {
+        var id = await SeedReview(4);
+        var charge = new GatedCharge();
+        charge.Release();
+        var expected = SnapshotFingerprint.Of(Orders().Serialize(await Stored(id)));
+
+        (await Runner(charge).Run(User, id, "req-1")).Should().BeOfType<AdvanceOutcome.Advanced>();
+
+        var completed = await TestDb.NewClaims().GetCompleted(EffectKey(id));
+        completed.Should().NotBeNull();
+        completed!.Receipt.Should().Be("receipt-1");
+        completed.ContentFingerprint.Should().Be(expected, Adr);
     }
 
     [Test]

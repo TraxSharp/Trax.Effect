@@ -80,6 +80,8 @@ public abstract record AdvanceOutcome
     /// A machine rejection reason (see <see cref="RejectionReasons"/>), or one of the service's own:
     /// <c>effect-bound</c> (the trigger runs the machine's irreversible effect from this state, so only
     /// <see cref="ISnapshotEffectRunner.Run"/> may fire it), <c>request-id-reused</c>, <c>too-large</c>,
+    /// <c>draft-changed</c> (from <see cref="ISnapshotEffectRunner.Run"/> only: the effect already ran on content
+    /// the draft no longer holds, so its receipt is not recorded and the effect does not run again),
     /// <c>client-divergence</c>, or <see cref="RehydrationErrorCodes.Malformed"/> when the resulting context
     /// could not be stored.
     /// </param>

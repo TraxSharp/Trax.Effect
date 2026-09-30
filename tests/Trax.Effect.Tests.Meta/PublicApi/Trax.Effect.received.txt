@@ -381,6 +381,8 @@ namespace Trax.Effect.Models.EffectClaim
     public class EffectClaim
     {
         public EffectClaim() { }
+        [System.ComponentModel.DataAnnotations.Schema.Column("content_fingerprint")]
+        public string? ContentFingerprint { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("created_at")]
         public System.DateTimeOffset CreatedAt { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("effect_key")]

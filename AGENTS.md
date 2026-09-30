@@ -35,7 +35,7 @@ if your work contradicts one, say so rather than silently overriding it.
 | overriding `ServiceTrain.Run` or `NewMonad`, or their modifiers | [0009](./docs/adr/0009-a-service-train-does-its-work-in-junctions.md), `Run` and `NewMonad` are sealed so `Junctions()` is the only way a service train does work |
 | `MapTraxTrainEventHub`, or the SignalR sink's default client payload | [0016](./docs/adr/0016-the-train-event-hub-carries-the-hosts-authorization.md), the hub is mapped with an authorization posture or the host does not start, and the default payload leaves the failure reason out |
 | a state-machine draft's `requestId` replay, or `ISnapshotStore.UpdateWithRequest` | [0013](./docs/adr/0013-a-request-id-replays-only-the-request-it-recorded.md), an id replays only for the trigger it recorded, and a request whose outcome was undone fires again |
-| what a state-machine draft's autosave or advance may write, what the effect runner commits and when a reset releases its claim, `RunsOnce`, or `Committed()` | [0017](./docs/adr/0017-only-the-effect-runner-reaches-a-committed-state.md), only the effect runner puts a draft into a committed state or an effect's target |
+| what a state-machine draft's autosave or advance may write, what the effect runner commits or replays and when a reset releases its claim, `effect_claim.content_fingerprint`, `RunsOnce`, or `Committed()` | [0017](./docs/adr/0017-only-the-effect-runner-reaches-a-committed-state.md), only the effect runner puts a draft into a committed state or an effect's target |
 
 Decisions binding more than one repo live in the central corpus at `Trax.Docs/adr/`, whose
 index lists them by repo. Twenty-one name `effect`: executable guards, exact version pinning, the

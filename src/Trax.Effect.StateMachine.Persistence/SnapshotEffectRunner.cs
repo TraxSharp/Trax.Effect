@@ -11,7 +11,9 @@ public interface ISnapshotEffectRunner
     /// effect's trigger. A draft already in the target state replays as <see cref="AdvanceOutcome.Advanced"/>
     /// without running anything. A draft in any state other than the effect's from-state, or a
     /// <paramref name="requestId"/> recorded for a different trigger, is <see cref="AdvanceOutcome.Rejected"/>
-    /// before the effect runs; a claim still held by another caller is rejected as <c>effect-in-progress</c>.
+    /// before the effect runs; a claim still held by another caller is rejected as <c>effect-in-progress</c>. A claim
+    /// whose effect already ran on content other than the draft's current content is rejected as
+    /// <c>draft-changed</c>: its receipt is not recorded and the effect does not run again.
     /// </summary>
     /// <param name="userKey">The authenticated owner of the draft.</param>
     /// <param name="id">The draft id.</param>
@@ -144,11 +146,14 @@ internal sealed class SnapshotEffectRunner<TState, TTrigger> : ISnapshotEffectRu
                     );
 
                 // Exactly-once DELIVERY: claim the effect key BEFORE running. Two concurrent runs (or a
-                // crash-retry) run the effect once and replay the receipt.
+                // crash-retry) run the effect once and replay the receipt. The claim records the fingerprint of the
+                // content the effect runs on, so its receipt is only ever replayed onto that content.
+                var fingerprint = SnapshotFingerprint.Of(_drafts.Serialize(loaded.Snapshot));
                 string receipt;
                 switch (
                     await _idempotent.RunOnce(
                         _effectKey(userKey, id),
+                        fingerprint,
                         // The request's token stops here: a request that goes away while the effect runs must
                         // not turn an effect that happened into a cancellation.
                         () => _effect.Run(loaded.Snapshot, CancellationToken.None),
@@ -161,6 +166,19 @@ internal sealed class SnapshotEffectRunner<TState, TTrigger> : ISnapshotEffectRu
                         receipt = ran.Receipt;
                         break;
                     case EffectOutcome.AlreadyRan already:
+                        // The effect ran on content this draft no longer holds. Committing its receipt here would
+                        // record it against content it was not produced for, and running the effect again would
+                        // repeat it, so neither happens. A claim with no fingerprint predates the check and
+                        // replays as it always did.
+                        if (
+                            already.ContentFingerprint is { } ranOn
+                            && !string.Equals(ranOn, fingerprint, StringComparison.Ordinal)
+                        )
+                            return new AdvanceOutcome.Rejected(
+                                "draft-changed",
+                                "This draft's action already ran, on content that has changed since. Restore the "
+                                    + "content it ran on to record its result."
+                            );
                         receipt = already.Receipt;
                         break;
                     case EffectOutcome.InProgress:
@@ -178,7 +196,7 @@ internal sealed class SnapshotEffectRunner<TState, TTrigger> : ISnapshotEffectRu
                 // Fold the receipt into the terminal snapshot, on the draft exactly as the effect loaded it: if it
                 // was written since (an edit, a reset, a concurrent run's commit) the CAS loses (Conflict) and the
                 // receipt is not recorded on content the effect did not act on. The claim keeps it, so the next
-                // send replays it rather than running the effect again. The effect has
+                // send replays it onto that same content rather than running the effect again. The effect has
                 // happened, so this write runs on a token the caller cannot cancel: a request that goes away now
                 // must still leave the draft showing what was done. The same rule as a train's outcome, in
                 // docs/adr/0005-a-trains-outcome-is-recorded-on-an-uncancellable-token.md.
