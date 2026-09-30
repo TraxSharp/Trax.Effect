@@ -97,7 +97,7 @@ the hub, and a custom projection can put the failure reason back.
 
 ## Changelog
 
-- **2026-09-29**: Recorded.
 - **2026-09-30**: A bare `RequireAuthorization()` applies the fallback policy with the default one,
   named policies are resolved at mapping, a role name with a comma is refused, and a connection is
   closed when its authentication expires.
+- **2026-09-29**: Recorded.
