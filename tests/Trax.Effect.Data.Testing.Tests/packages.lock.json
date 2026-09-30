@@ -242,6 +242,7 @@
       "trax.effect.data.testing": {
         "type": "Project",
         "dependencies": {
+          "Microsoft.CodeAnalysis.CSharp": "[5.9.0, )",
           "NUnit": "[4.6.1, )",
           "Npgsql.EntityFrameworkCore.PostgreSQL": "[10.0.3, )",
           "Trax.Core.Testing": "[1.7.5, )",
