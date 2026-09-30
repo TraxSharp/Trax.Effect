@@ -8,12 +8,12 @@ namespace Trax.Effect.Tests.Integration.UnitTests.Models;
 /// <summary>
 /// Which entries a disabled manifest still dispatches: only the ones someone asked for by name.
 ///
-/// <para>Enforces <c>docs/adr/0019-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md</c>.</para>
+/// <para>Enforces <c>docs/adr/0018-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md</c>.</para>
 /// </summary>
 [TestFixture]
 [Property(
     "adr",
-    "docs/adr/0019-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md"
+    "docs/adr/0018-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md"
 )]
 public class WorkQueueExplicitTriggerTests
 {
@@ -57,7 +57,7 @@ public class WorkQueueExplicitTriggerTests
             .IsExplicitTrigger.Should()
             .BeTrue(
                 "an operator requeued that dead letter by name ("
-                    + "0019-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md)"
+                    + "0018-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md)"
             );
     }
 }

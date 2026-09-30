@@ -17,11 +17,11 @@ namespace Trax.Effect.Tests.Data.Sqlite.Integration.IntegrationTests;
 /// A disabled manifest pauses the work it already queued: the candidate load and the claim both
 /// pass over its scheduled entries, and dispatch an explicit trigger for it.
 ///
-/// <para>Enforces <c>docs/adr/0019-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md</c>.</para>
+/// <para>Enforces <c>docs/adr/0018-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md</c>.</para>
 /// </summary>
 [Property(
     "adr",
-    "docs/adr/0019-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md"
+    "docs/adr/0018-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md"
 )]
 public class SqliteDisabledManifestDispatchTests : TestSetup
 {
@@ -41,7 +41,7 @@ public class SqliteDisabledManifestDispatchTests : TestSetup
             .Should()
             .BeNull(
                 "the manifest is disabled, and nobody asked for this run by name ("
-                    + "0019-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md)"
+                    + "0018-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md)"
             );
     }
 
@@ -70,7 +70,7 @@ public class SqliteDisabledManifestDispatchTests : TestSetup
             .Should()
             .NotBeNull(
                 "an operator asked for this run by name ("
-                    + "0019-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md)"
+                    + "0018-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md)"
             );
     }
 

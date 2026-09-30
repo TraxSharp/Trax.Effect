@@ -17,11 +17,11 @@ namespace Trax.Effect.Tests.Integration.IntegrationTests;
 /// pass over its scheduled entries, and dispatch an explicit trigger for it. The claim tests the
 /// manifest without joining it, so <c>FOR UPDATE</c> locks only the entry.
 ///
-/// <para>Enforces <c>docs/adr/0019-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md</c>.</para>
+/// <para>Enforces <c>docs/adr/0018-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md</c>.</para>
 /// </summary>
 [Property(
     "adr",
-    "docs/adr/0019-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md"
+    "docs/adr/0018-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md"
 )]
 public class PostgresDisabledManifestDispatchTests : TestSetup
 {
@@ -38,7 +38,7 @@ public class PostgresDisabledManifestDispatchTests : TestSetup
             .Should()
             .BeNull(
                 "the manifest is disabled, and nobody asked for this run by name ("
-                    + "0019-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md)"
+                    + "0018-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md)"
             );
     }
 
@@ -67,7 +67,7 @@ public class PostgresDisabledManifestDispatchTests : TestSetup
             .Should()
             .NotBeNull(
                 "an operator asked for this run by name ("
-                    + "0019-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md)"
+                    + "0018-a-disabled-manifest-holds-its-queued-work-except-an-explicit-trigger.md)"
             );
     }
 
