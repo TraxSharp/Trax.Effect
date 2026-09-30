@@ -112,7 +112,12 @@ public class NulCharacterOutcomeTests
         await act.Should().ThrowAsync<InvalidOperationException>();
 
         var row = await PersistedRow(scope, train.Metadata!.Id);
-        row.TrainState.Should().Be(TrainState.Failed);
+        row.TrainState.Should()
+            .Be(
+                TrainState.Failed,
+                "0005-a-trains-outcome-is-recorded-on-an-uncancellable-token.md records the state "
+                    + "without the content the database refused"
+            );
         row.EndTime.Should().NotBeNull();
         row.FailureException.Should().Be(nameof(InvalidOperationException));
         row.FailureReason.Should().NotBeNull().And.NotContain("half of a pair");
