@@ -187,6 +187,7 @@ namespace Trax.Effect.Data.Services.SqlDialect
         string ClaimWorkQueueEntry();
         string DequeueBackgroundJobs();
         string? EstimateRowCount();
+        bool IsTransient(System.Exception exception);
         bool IsUniqueViolation(Microsoft.EntityFrameworkCore.DbUpdateException exception);
         string LoadGroupFairQueuedJobs();
         string LockSubject();

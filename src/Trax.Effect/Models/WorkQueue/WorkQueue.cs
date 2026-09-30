@@ -172,6 +172,26 @@ public class WorkQueue : IModel
     [Column("dispatch_attempts")]
     public int DispatchAttempts { get; set; }
 
+    /// <summary>
+    /// Whether someone asked for this run by name (a trigger, a group trigger, a run-now, or a
+    /// dead-letter requeue) rather than the manifest's schedule producing it.
+    /// </summary>
+    /// <remarks>
+    /// Disabling a manifest pauses its scheduled work, including entries it already queued: the
+    /// dispatch SQL (<c>ISqlDialect.LoadGroupFairQueuedJobs</c> and
+    /// <c>ISqlDialect.ClaimWorkQueueEntry</c>) passes over an entry whose manifest is disabled.
+    /// An explicit request is the exception, because an operator who triggers a disabled manifest
+    /// asked for exactly that run. A disabled manifest group still holds everything, explicit or
+    /// not.
+    ///
+    /// <see cref="Create"/> sets it from <see cref="CreateWorkQueue.ExplicitTrigger"/>, and always
+    /// for a dead-letter requeue. Setting it on an entry that is already queued, for a trigger that
+    /// finds the manifest's scheduled entry waiting, releases that entry the same way. Entries
+    /// without a manifest are never paused by one, so it changes nothing for them.
+    /// </remarks>
+    [Column("is_explicit_trigger")]
+    public bool IsExplicitTrigger { get; set; }
+
     #endregion
 
     #region ForeignKeys
@@ -236,6 +256,7 @@ public class WorkQueue : IModel
             Priority = Math.Clamp(dto.Priority, MinPriority, MaxPriority),
             ScheduledAt = dto.ScheduledAt,
             DeadLetterId = dto.DeadLetterId,
+            IsExplicitTrigger = dto.ExplicitTrigger || dto.DeadLetterId is not null,
             Status = WorkQueueStatus.Queued,
             CreatedAt = DateTime.UtcNow,
             ConfirmedAt = dto.DeferPromotion ? null : DateTime.UtcNow,
