@@ -215,6 +215,10 @@ namespace Trax.Effect.Enums
 }
 namespace Trax.Effect.Exceptions
 {
+    public class StoreRefusedContentException : System.Exception
+    {
+        public StoreRefusedContentException(System.Exception innerException) { }
+    }
     public class TrainAlreadyStartedException : Trax.Core.Exceptions.TrainException
     {
         public TrainAlreadyStartedException(long metadataId, string trainName) { }
