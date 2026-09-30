@@ -160,6 +160,67 @@ public class SignalRHubAuthorizationTests
             );
     }
 
+    [Test]
+    public async Task RequireAuthorization_WithANullPolicyList_AdmitsAnyAuthenticatedUser()
+    {
+        using var host = await StartHostAsync(hub => hub.RequireAuthorization(null!));
+
+        await using (var anonymous = Client(host, user: null))
+        {
+            var connect = async () => await anonymous.StartAsync().WaitAsync(Timeout);
+            (await connect.Should().ThrowAsync<HttpRequestException>(Adr))
+                .Which.StatusCode.Should()
+                .Be(HttpStatusCode.Unauthorized);
+        }
+
+        await using var user = Client(host, user: "alice");
+        await user.StartAsync().WaitAsync(Timeout);
+        user.State.Should().Be(HubConnectionState.Connected);
+    }
+
+    [TestCase("")]
+    [TestCase("   ")]
+    [TestCase(null)]
+    public async Task RequireAuthorization_WithABlankPolicyName_FailsAtStartup(string? policy)
+    {
+        var start = async () =>
+            await StartHostAsync(hub => hub.RequireAuthorization("TraxEvents", policy!));
+
+        (await start.Should().ThrowAsync<ArgumentException>())
+            .Which.ParamName.Should()
+            .Be("policies");
+    }
+
+    [Test]
+    public async Task RequireRoles_WithNoRoles_FailsAtStartup()
+    {
+        var start = async () => await StartHostAsync(hub => hub.RequireRoles());
+
+        (await start.Should().ThrowAsync<ArgumentException>())
+            .Which.Message.Should()
+            .Contain("at least one role");
+    }
+
+    [Test]
+    public async Task RequireRoles_WithANullRoleList_FailsAtStartup()
+    {
+        var start = async () => await StartHostAsync(hub => hub.RequireRoles(null!));
+
+        (await start.Should().ThrowAsync<ArgumentException>()).Which.ParamName.Should().Be("roles");
+    }
+
+    [TestCase("")]
+    [TestCase("   ")]
+    [TestCase(null)]
+    public async Task RequireRoles_WithABlankRoleName_FailsAtStartup(string? role)
+    {
+        var start = async () => await StartHostAsync(hub => hub.RequireRoles("Operator", role!));
+
+        (await start.Should().ThrowAsync<ArgumentException>())
+            .Which.Message.Should()
+            .Contain("whitespace role names");
+    }
+
     private static async Task<IHost> StartHostAsync(
         Action<TraxTrainEventHubOptions> hub,
         ILoggerProvider? logs = null

@@ -402,6 +402,46 @@ public class ChangeSignalCoalescerTests
     }
 
     [Test]
+    public void Notify_AnUndefinedDomainValue_IsQueuedEachTime_AndDroppedAfterComplete()
+    {
+        // A value past the enum's first 32 members has no pending bit, so it is never deduplicated.
+        var undefined = (ChangeDomain)40;
+        var signal = new TraxChangeSignal(new ChangeSignalOptions());
+
+        signal.Notify(undefined);
+        signal.Notify(undefined);
+
+        signal.Reader.TryRead(out var first).Should().BeTrue();
+        signal.Reader.TryRead(out var second).Should().BeTrue();
+        first.Should().Be(undefined);
+        second.Should().Be(undefined);
+
+        signal.Complete();
+        signal.Notify(undefined);
+        signal.TotalDropped.Should().Be(1);
+        signal.Dispose();
+    }
+
+    [Test]
+    public void Reader_CountsAndPeeksPendingDomains_WithoutClearingThem()
+    {
+        var signal = new TraxChangeSignal(new ChangeSignalOptions());
+        signal.Notify(ChangeDomain.Manifest);
+        signal.Notify(ChangeDomain.DeadLetter);
+
+        signal.Reader.CanCount.Should().BeTrue();
+        signal.Reader.Count.Should().Be(2);
+        signal.Reader.CanPeek.Should().BeTrue();
+        signal.Reader.TryPeek(out var peeked).Should().BeTrue();
+        peeked.Should().Be(ChangeDomain.Manifest);
+
+        // A peek does not read: the domain is still pending, so a repeat of it is absorbed.
+        signal.Notify(ChangeDomain.Manifest);
+        signal.Reader.Count.Should().Be(2);
+        signal.Dispose();
+    }
+
+    [Test]
     public async Task DrainLoop_WhenSinkResolutionThrows_LogsAndKeepsRunning()
     {
         // A throw from outside the per-sink guard (here, resolving the sink itself) must not kill the
