@@ -58,22 +58,22 @@ public partial class TraxEffectBuilder
     /// Whether a database-backed data provider (e.g., Postgres) was configured.
     /// Propagated to the root builder so downstream subsystems (e.g., the scheduler)
     /// can default to in-memory implementations when no database is available.
+    /// Read-only outside Trax: only the data provider's <c>Use*</c> method sets it.
     /// </summary>
-    [EditorBrowsable(EditorBrowsableState.Never)]
     public bool HasDatabaseProvider
     {
         get => _parent.HasDatabaseProvider;
-        set => _parent.HasDatabaseProvider = value;
+        internal set => _parent.HasDatabaseProvider = value;
     }
 
     /// <summary>
     /// Whether any data provider (<c>UsePostgres()</c>, <c>UseSqlite()</c>, or <c>UseInMemory()</c>) was configured.
+    /// Read-only outside Trax: only the data provider's <c>Use*</c> method sets it.
     /// </summary>
-    [EditorBrowsable(EditorBrowsableState.Never)]
     public bool HasDataProvider
     {
         get => _parent.HasDataProvider;
-        set => _parent.HasDataProvider = value;
+        internal set => _parent.HasDataProvider = value;
     }
 
     /// <summary>

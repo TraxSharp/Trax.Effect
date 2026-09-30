@@ -118,9 +118,9 @@ namespace Trax.Effect.Configuration.TraxBuilder
     {
         public TraxBuilder(Microsoft.Extensions.DependencyInjection.IServiceCollection services, Trax.Effect.Services.EffectRegistry.IEffectRegistry registry) { }
         public System.Collections.Generic.List<System.Reflection.Assembly> ContributedMediatorAssemblies { get; }
-        public bool HasDataProvider { get; set; }
-        public bool HasDatabaseProvider { get; set; }
-        public bool MediatorConfigured { get; set; }
+        public bool HasDataProvider { get; }
+        public bool HasDatabaseProvider { get; }
+        public bool MediatorConfigured { get; }
         public Microsoft.Extensions.DependencyInjection.IServiceCollection ServiceCollection { get; }
         public Trax.Effect.Configuration.TraxBuilder.TraxBuilder AddHostLabel(string key, string value) { }
         public Trax.Effect.Configuration.TraxBuilder.TraxBuilder AddHostLabels(System.Collections.Generic.Dictionary<string, string> labels) { }
@@ -144,8 +144,8 @@ namespace Trax.Effect.Configuration.TraxEffectBuilder
     public class TraxEffectBuilder
     {
         public Trax.Effect.Services.EffectRegistry.IEffectRegistry? EffectRegistry { get; }
-        public bool HasDataProvider { get; set; }
-        public bool HasDatabaseProvider { get; set; }
+        public bool HasDataProvider { get; }
+        public bool HasDatabaseProvider { get; }
         public bool JunctionProgressEnabled { get; set; }
         public Microsoft.Extensions.Logging.LogLevel LogLevel { get; set; }
         public bool MigrationsDisabled { get; set; }
@@ -940,7 +940,8 @@ namespace Trax.Effect.Models.WorkQueue
         [System.ComponentModel.DataAnnotations.Schema.Column("status")]
         public Trax.Effect.Enums.WorkQueueStatus Status { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("subject_key")]
-        public string? SubjectKey { get; set; }
+        [System.Text.Json.Serialization.JsonInclude]
+        public string? SubjectKey { get; }
         [System.ComponentModel.DataAnnotations.Schema.Column("train_name")]
         public string TrainName { get; set; }
         public override string ToString() { }
