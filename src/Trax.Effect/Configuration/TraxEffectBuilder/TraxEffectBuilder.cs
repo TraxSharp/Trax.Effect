@@ -37,7 +37,6 @@ public partial class TraxEffectBuilder
         // any configuration set before promotion.
         MigrationsDisabled = source.MigrationsDisabled;
         JunctionProgressEnabled = source.JunctionProgressEnabled;
-        DataContextLoggingEffectEnabled = source.DataContextLoggingEffectEnabled;
         SerializeJunctionData = source.SerializeJunctionData;
         LogLevel = source.LogLevel;
         TrainParameterJsonSerializerOptions = source.TrainParameterJsonSerializerOptions;
@@ -92,14 +91,6 @@ public partial class TraxEffectBuilder
     /// </summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
     public bool JunctionProgressEnabled { get; set; }
-
-    /// <summary>
-    /// Set to <c>true</c> by the Postgres and Sqlite data providers. Nothing in Trax reads it today: data context
-    /// logging is enabled by <c>AddDataContextLogging()</c>, not by this flag. Infrastructure; not intended to be set
-    /// directly.
-    /// </summary>
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    public bool DataContextLoggingEffectEnabled { get; set; } = false;
 
     /// <summary>
     /// Whether the junction logger serializes each junction's output into <c>JunctionMetadata.OutputJson</c>.
