@@ -177,7 +177,7 @@ public class DataContextLoggingProviderTests
         passLogger.Log(LogLevel.Warning, default, "x", null, (_, _) => "x");
 
         // The provider's flush loop will eventually persist the un-filtered log.
-        // We dispose to force the drain rather than wait for the 1-second timer tick.
+        // Dispose writes what is queued before it returns.
         provider.Dispose();
     }
 
@@ -192,10 +192,9 @@ public class DataContextLoggingProviderTests
         for (var i = 0; i < 5; i++)
             logger.Log(LogLevel.Information, default, i, null, (s, _) => $"msg {s}");
 
-        // Poll for the flush loop to land at least one batch instead of waiting
-        // a fixed window past the 1-second timer tick. CI scheduling can stretch
-        // the timer's wakeup well past 1.5s; once any log is persisted we know
-        // the flush path is working and can stop waiting.
+        // Poll for the flush loop to land at least one batch instead of waiting a fixed
+        // window: CI scheduling can delay the background writer, and once any log is
+        // persisted the flush path is known to work.
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
         var landed = 0;
         while (DateTime.UtcNow < deadline)
@@ -217,6 +216,30 @@ public class DataContextLoggingProviderTests
             .Where(l => l.Category == "TestCategory")
             .ToListAsync();
         logs.Should().HaveCountGreaterThanOrEqualTo(1);
+    }
+
+    /// <summary>
+    /// The entries logged just before shutdown are the ones that say why it happened, so stopping
+    /// the sink writes what is already queued before it lets go.
+    /// </summary>
+    [Test]
+    public async Task Dispose_WritesEveryEntryAlreadyQueued()
+    {
+        var (provider, context) = BuildProvider(
+            new FakeConfig { MinimumLogLevel = LogLevel.Trace }
+        );
+        var category = $"Shutdown.{Guid.NewGuid():N}";
+        var logger = provider.CreateLogger(category);
+
+        const int count = 1000;
+        for (var i = 0; i < count; i++)
+            logger.Log(LogLevel.Information, default, i, null, (s, _) => $"msg {s}");
+
+        provider.Dispose();
+
+        context.Reset();
+        var stored = await context.Logs.AsNoTracking().CountAsync(l => l.Category == category);
+        stored.Should().Be(count, "entries queued before Dispose are written, not dropped");
     }
 
     [Test]
