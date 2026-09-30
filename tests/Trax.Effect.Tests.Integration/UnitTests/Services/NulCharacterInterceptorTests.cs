@@ -39,4 +39,12 @@ public class NulCharacterInterceptorTests
             .ScrubJson("""["\n\"\u0041\\\u0000"]""")
             .Should()
             .Be("""["\n\"\u0041\\\ufffd"]""");
+
+    [Test]
+    public void A_raw_NUL_in_JSON_without_an_escape_becomes_the_replacement_character() =>
+        NulCharacterInterceptor.ScrubJson("[\"a\0b\"]").Should().Be("[\"a\uFFFDb\"]");
+
+    [Test]
+    public void An_escape_too_close_to_the_end_to_be_u0000_is_kept() =>
+        NulCharacterInterceptor.ScrubJson("""["\u0000","\n"]""").Should().Be("""["\ufffd","\n"]""");
 }

@@ -247,13 +247,91 @@ public class DataContextLoggingProviderTests
     {
         var (provider, _) = BuildProvider(new FakeConfig());
 
-        Action act = () =>
-        {
-            provider.Dispose();
-            // Second Dispose should be a no-op (cts already cancelled, channel already completed).
-        };
+        provider.Dispose();
 
-        act.Should().NotThrow();
+        // The second call does nothing: the queue is already completed and the writer stopped.
+        Action again = () => provider.Dispose();
+
+        again.Should().NotThrow();
+    }
+
+    [Test]
+    public void Dispose_WhenTheWriterFailed_ReturnsWithoutThrowing()
+    {
+        var factory = Substitute.For<IDataContextProviderFactory>();
+        factory
+            .CreateDbContextAsync(Arg.Any<CancellationToken>())
+            .Returns<Task<IDataContext>>(_ => throw new InvalidOperationException("unreachable"));
+        var provider = new DataContextLoggingProvider(factory, new FakeConfig());
+        var logger = provider.CreateLogger("Writer.Failed");
+
+        var log = () => logger.Log(LogLevel.Information, default, "m", null, (_, _) => "m");
+        Action dispose = () => provider.Dispose();
+
+        log.Should().NotThrow("logging never throws into the caller");
+        dispose.Should().NotThrow("a writer that failed has stopped too");
+    }
+
+    [TestCase(
+        true,
+        TestName = "Dispose_WhenTheWriterCannotOpenItsContext_CancelsItWithinTheDrainBound"
+    )]
+    [TestCase(false, TestName = "Dispose_WhenTheWriterCannotSave_CancelsItWithinTheDrainBound")]
+    public async Task Dispose_WhenTheWriterCannotFinish_CancelsItWithinTheDrainBound(
+        bool stuckOpening
+    )
+    {
+        var cancelled = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        async Task Hang(CancellationToken token)
+        {
+            entered.TrySetResult();
+            try
+            {
+                // negative-wait: a database that never answers; only the writer's cancellation ends it.
+                await Task.Delay(Timeout.Infinite, token);
+            }
+            catch (OperationCanceledException)
+            {
+                cancelled.TrySetResult();
+                throw;
+            }
+        }
+
+        var context = Substitute.For<IDataContext>();
+        context.Logs.Returns(Substitute.For<DbSet<global::Trax.Effect.Models.Log.Log>>());
+        context
+            .SaveChanges(Arg.Any<CancellationToken>())
+            .Returns(call => Hang(call.Arg<CancellationToken>()));
+        var factory = Substitute.For<IDataContextProviderFactory>();
+        if (stuckOpening)
+            factory
+                .CreateDbContextAsync(Arg.Any<CancellationToken>())
+                .Returns(async call =>
+                {
+                    await Hang(call.Arg<CancellationToken>());
+                    return context;
+                });
+        else
+            factory.CreateDbContextAsync(Arg.Any<CancellationToken>()).Returns(context);
+        var provider = new DataContextLoggingProvider(factory, new FakeConfig());
+
+        provider
+            .CreateLogger("Writer.Stuck")
+            .Log(LogLevel.Information, default, "m", null, (_, _) => "m");
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        // measuring-interval: the stopwatch measures how long shutdown is held up.
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        provider.Dispose();
+        clock.Stop();
+
+        cancelled
+            .Task.IsCompleted.Should()
+            .BeTrue("the writer is cancelled once the drain runs out");
+        clock.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(8));
     }
 
     #endregion

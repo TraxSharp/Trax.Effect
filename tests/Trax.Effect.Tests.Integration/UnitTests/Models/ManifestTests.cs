@@ -203,6 +203,24 @@ public class ManifestTests
     }
 
     [Test]
+    public void PropertyType_NoStoredName_ReturnsUnit()
+    {
+        var m = new Manifest { Name = typeof(SomeFakeTrain).FullName!, PropertyTypeName = null };
+
+        m.PropertyType.Should().Be(typeof(LanguageExt.Unit));
+    }
+
+    [Test]
+    public void NameType_AnEmptyName_IsNotFound()
+    {
+        var m = new Manifest { Name = "" };
+
+        Action act = () => _ = m.NameType;
+
+        act.Should().Throw<TypeLoadException>().WithMessage("Unable to find type*");
+    }
+
+    [Test]
     public void ToString_RoundTripsAsJson()
     {
         var m = NewManifest();

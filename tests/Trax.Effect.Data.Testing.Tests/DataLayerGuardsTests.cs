@@ -85,6 +85,63 @@ public class DataLayerGuardsTests
     }
 
     [Test]
+    public void DomainContextsDeriveBase_AcceptsTheBaseNamedByAQualifiedOrGlobalName()
+    {
+        using var repo = new TempRepo()
+            .Write(
+                "src/Catalog/CatalogDbContext.cs",
+                "public class CatalogDbContext(DbContextOptions<CatalogDbContext> o)\n"
+                    + "    : Trax.Effect.Data.Services.DomainContext.DomainDataContext<CatalogDbContext>(o) { }"
+            )
+            .Write(
+                "src/Audit/AuditDbContext.cs",
+                "public class AuditDbContext(DbContextOptions<AuditDbContext> o)\n"
+                    + "    : global::DomainDataContext<AuditDbContext>(o) { }"
+            );
+
+        var result = DataLayerGuards.DomainContextsDeriveBase(OptionsFor(repo));
+
+        result.Inspected.Should().Be(2);
+        result.Passed.Should().BeTrue(result.FailureMessage);
+    }
+
+    [Test]
+    public void DomainContextsDeriveBase_MergesThePartsOfAPartialContextInANamespace()
+    {
+        // The base list is on one part only; the other part, in its own file, does not repeat it.
+        using var repo = new TempRepo()
+            .Write(
+                "src/Catalog/CatalogDbContext.cs",
+                "namespace Shop.Catalog;\n"
+                    + "public partial class CatalogDbContext(DbContextOptions<CatalogDbContext> o)\n"
+                    + "    : DomainDataContext<CatalogDbContext>(o) { }"
+            )
+            .Write(
+                "src/Catalog/CatalogDbContext.Sets.cs",
+                "namespace Shop.Catalog;\n"
+                    + "public partial class CatalogDbContext { public DbSet<Item> Items => Set<Item>(); }"
+            );
+
+        var result = DataLayerGuards.DomainContextsDeriveBase(OptionsFor(repo));
+
+        result.Inspected.Should().Be(1, "the two parts are one context");
+        result.Passed.Should().BeTrue(result.FailureMessage);
+    }
+
+    [Test]
+    public void DomainContextsDeriveBase_FlagsAContextWhoseBaseIsAPredefinedType()
+    {
+        using var repo = new TempRepo().Write(
+            "src/Catalog/CatalogDbContext.cs",
+            "public class CatalogDbContext : object { }"
+        );
+
+        var result = DataLayerGuards.DomainContextsDeriveBase(OptionsFor(repo));
+
+        result.Offenders.Should().ContainSingle(o => o.Contains("CatalogDbContext"));
+    }
+
+    [Test]
     public void DomainContextsDeriveBase_FlagsAMissingScanRoot()
     {
         using var repo = new TempRepo().Write("src/Catalog/CatalogDbContext.cs", DerivedContext);

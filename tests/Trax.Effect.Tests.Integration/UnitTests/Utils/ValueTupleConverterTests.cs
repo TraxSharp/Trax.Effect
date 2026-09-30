@@ -144,5 +144,24 @@ public class ValueTupleConverterTests
         act.Should().Throw<JsonException>();
     }
 
+    [Test]
+    public void Deserialize_AnArrayInsideAPreservedReferenceWrapper_ReadsTheArray()
+    {
+        var tuple = JsonSerializer.Deserialize<(int, string)>(
+            """{"$id":"1","$values":[7,"seven"]}""",
+            _options
+        );
+
+        tuple.Should().Be((7, "seven"));
+    }
+
+    [Test]
+    public void Deserialize_AnObjectWithoutValues_Throws()
+    {
+        var act = () => JsonSerializer.Deserialize<(int, int)>("""{"a":1,"b":2}""", _options);
+
+        act.Should().Throw<JsonException>().WithMessage("*Expected a JSON array*Object*");
+    }
+
     public sealed record Point(int X, int Y);
 }

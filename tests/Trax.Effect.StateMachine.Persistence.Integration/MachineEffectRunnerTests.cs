@@ -31,6 +31,27 @@ public class MachineEffectRunnerTests
             .Be("service");
     }
 
+    [Test]
+    public void CreateEffectRunner_refuses_a_null_draft_service_by_name()
+    {
+        var services = new ServiceCollection()
+            .AddSingleton<IOrderCharge>(new CountingEffect())
+            .BuildServiceProvider();
+
+        var act = () =>
+            new OrderMachine().CreateEffectRunner(
+                null!,
+                new IdempotentEffect(TestDb.NewClaims()),
+                services
+            );
+
+        act.Should()
+            .Throw<ArgumentException>()
+            .WithMessage("*was given null*")
+            .Which.ParamName.Should()
+            .Be("service");
+    }
+
     private sealed class ForeignDraftService : ISnapshotDraftService
     {
         public Task<LoadResult> Load(

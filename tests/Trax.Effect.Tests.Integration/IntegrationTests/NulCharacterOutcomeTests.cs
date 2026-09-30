@@ -3,11 +3,13 @@ using LanguageExt;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Trax.Effect.Data.Postgres.Extensions;
 using Trax.Effect.Data.Services.DataContext;
 using Trax.Effect.Data.Services.IDataContextFactory;
 using Trax.Effect.Enums;
 using Trax.Effect.Extensions;
+using Trax.Effect.Models.Log;
 using Trax.Effect.Models.Metadata;
 using Trax.Effect.Provider.Parameter.Extensions;
 using Trax.Effect.Services.EffectJunction;
@@ -81,6 +83,31 @@ public class NulCharacterOutcomeTests
         row.TrainState.Should().Be(TrainState.Failed);
         row.EndTime.Should().NotBeNull();
         row.FailureReason.Should().NotBeNull().And.NotContain("\0");
+    }
+
+    [Test]
+    public async Task A_NUL_written_through_a_synchronous_save_is_replaced()
+    {
+        using var scope = _provider.CreateScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDataContextProviderFactory>();
+        var category = $"nul-sync-{Guid.NewGuid():N}";
+
+        using (var context = (IDataContext)factory.Create())
+        {
+            context.Logs.Add(
+                new Log
+                {
+                    Level = LogLevel.Warning,
+                    Message = "bytes:\0end",
+                    Category = category,
+                }
+            );
+            ((DbContext)context).SaveChanges();
+        }
+
+        using var reader = (IDataContext)factory.Create();
+        var stored = await reader.Logs.AsNoTracking().SingleAsync(l => l.Category == category);
+        stored.Message.Should().Be("bytes:\uFFFDend");
     }
 
     private static async Task<Metadata> PersistedRow(IServiceScope scope, long id)
