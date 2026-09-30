@@ -41,7 +41,9 @@ public sealed class IdempotentEffect(IEffectClaimStore claims)
     /// receipt. A lost claim returns <see cref="EffectOutcome.AlreadyRan"/> with the stored receipt, or
     /// <see cref="EffectOutcome.InProgress"/> while another caller is still in flight; the effect does not run.
     /// If the effect throws, the claim is released (fenced on this call's token) and the exception rethrown, so a
-    /// retry runs it again: a throw is assumed to mean the effect did not happen. If this call's lease expired
+    /// retry runs it again: a throw is assumed to mean the effect did not happen. An
+    /// <see cref="OperationCanceledException"/> is the exception to that: the outcome is unknown, so the claim stays
+    /// in flight until its lease passes and callers until then get <see cref="EffectOutcome.InProgress"/>. If this call's lease expired
     /// mid-effect and another caller reclaimed the key, the receipt is not recorded but is still returned as
     /// <see cref="EffectOutcome.Ran"/>.
     /// </summary>
@@ -77,6 +79,13 @@ public sealed class IdempotentEffect(IEffectClaimStore claims)
                 try
                 {
                     receipt = await effect();
+                }
+                catch (OperationCanceledException)
+                {
+                    // A cancellation says nothing about whether the effect happened: a charge can land and its
+                    // response time out. Keep the claim in flight, so no one runs the effect again until the lease
+                    // passes, rather than releasing it for an immediate retry.
+                    throw;
                 }
                 catch
                 {

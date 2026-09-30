@@ -17,9 +17,10 @@ public interface ISnapshotEffectRunner
     /// <param name="id">The draft id.</param>
     /// <param name="requestId">The client's idempotency key for this send; a retry with the same id replays.</param>
     /// <param name="cancellationToken">
-    /// Cancels the request up to the effect, and is passed to the effect. Once the effect has returned, its receipt
-    /// and the advance that records it are written whatever the token says, so a cancelled request never leaves an
-    /// effect that ran looking as if it had not.
+    /// Cancels the request up to the effect. It is not passed to the effect, which gets
+    /// <see cref="CancellationToken.None"/>, and once the effect has returned, its receipt and the advance that
+    /// records it are written whatever the token says, so a cancelled request never leaves an effect that ran
+    /// looking as if it had not.
     /// </param>
     Task<AdvanceOutcome> Run(
         string userKey,
@@ -148,7 +149,9 @@ internal sealed class SnapshotEffectRunner<TState, TTrigger> : ISnapshotEffectRu
                 switch (
                     await _idempotent.RunOnce(
                         _effectKey(userKey, id),
-                        () => _effect.Run(loaded.Snapshot, cancellationToken),
+                        // The request's token stops here: a request that goes away while the effect runs must
+                        // not turn an effect that happened into a cancellation.
+                        () => _effect.Run(loaded.Snapshot, CancellationToken.None),
                         _lease,
                         cancellationToken
                     )
@@ -172,8 +175,10 @@ internal sealed class SnapshotEffectRunner<TState, TTrigger> : ISnapshotEffectRu
                         );
                 }
 
-                // Fold the receipt into the terminal snapshot. If a concurrent run already committed this
-                // CAS loses (Conflict) — harmless: the effect ran once and the winner recorded it. The effect has
+                // Fold the receipt into the terminal snapshot, on the draft exactly as the effect loaded it: if it
+                // was written since (an edit, a reset, a concurrent run's commit) the CAS loses (Conflict) and the
+                // receipt is not recorded on content the effect did not act on. The claim keeps it, so the next
+                // send replays it rather than running the effect again. The effect has
                 // happened, so this write runs on a token the caller cannot cancel: a request that goes away now
                 // must still leave the draft showing what was done. The same rule as a train's outcome, in
                 // docs/adr/0005-a-trains-outcome-is-recorded-on-an-uncancellable-token.md.
@@ -183,6 +188,7 @@ internal sealed class SnapshotEffectRunner<TState, TTrigger> : ISnapshotEffectRu
                     _trigger,
                     new JsonObject { [_receiptKey] = receipt },
                     requestId,
+                    loaded.Token,
                     CancellationToken.None
                 );
 

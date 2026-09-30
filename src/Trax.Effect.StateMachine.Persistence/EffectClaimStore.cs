@@ -57,8 +57,35 @@ public interface IEffectClaimStore
     /// <summary>The stored receipt, or <c>null</c> if the key is unclaimed or claimed-but-in-flight.</summary>
     Task<string?> GetReceipt(string effectKey, CancellationToken cancellationToken = default);
 
-    /// <summary>Release a claim unconditionally (the reset / new-intent path). Idempotent.</summary>
+    /// <summary>
+    /// Release a claim unconditionally, completed or in flight (the path for a deleted draft, whose next draft is a
+    /// new intent). A reset releases through <see cref="ReleaseForReset"/> instead. Idempotent.
+    /// </summary>
     Task Release(string effectKey, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Release a claim when the draft it belongs to is reset, but only once its outcome is settled on that draft:
+    /// a claim in flight within its lease is kept (the effect may still be running), and a completed claim is
+    /// released only when <paramref name="receiptRecorded"/> says the draft recorded its receipt. A kept completed
+    /// claim is replayed by the next run instead of the effect running a second time. A store that does not
+    /// override this reads the receipt and releases through <see cref="Release"/> only a completed claim whose
+    /// receipt was recorded; it keeps every claim in flight, whatever its lease.
+    /// </summary>
+    /// <param name="effectKey">The intent key of the draft being reset.</param>
+    /// <param name="receiptRecorded">Whether the draft being reset holds a given receipt.</param>
+    /// <param name="cancellationToken">Cancels the store calls.</param>
+    async Task ReleaseForReset(
+        string effectKey,
+        Func<string, bool> receiptRecorded,
+        CancellationToken cancellationToken = default
+    )
+    {
+        if (
+            await GetReceipt(effectKey, cancellationToken) is { } receipt
+            && receiptRecorded(receipt)
+        )
+            await Release(effectKey, cancellationToken);
+    }
 
     /// <summary>Release a claim only if this caller still owns it and it is in flight (the runner's fail path).</summary>
     Task<bool> ReleaseOwned(
@@ -173,12 +200,51 @@ public sealed class EfEffectClaimStore(IDataContext db, ISqlDialect? dialect = n
 
     /// <summary>
     /// Deletes the key's row whatever its state, completed or in flight, so the next
-    /// <see cref="TryClaim"/> starts over and the effect can run again. Used when a draft is reset.
+    /// <see cref="TryClaim"/> starts over and the effect can run again. Used when a draft is deleted.
     /// </summary>
     /// <param name="effectKey">The intent key to forget.</param>
     /// <param name="cancellationToken">Cancels the delete.</param>
     public Task Release(string effectKey, CancellationToken cancellationToken = default) =>
         db.EffectClaims.Where(x => x.EffectKey == effectKey).ExecuteDeleteAsync(cancellationToken);
+
+    /// <summary>
+    /// Deletes the key's row when the reset it follows settles it: an in-flight row whose lease has passed, or a
+    /// completed row whose receipt <paramref name="receiptRecorded"/> accepts. Each delete is conditioned on the
+    /// row as it was read, so a claim that completes in between is kept.
+    /// </summary>
+    /// <param name="effectKey">The intent key of the draft being reset.</param>
+    /// <param name="receiptRecorded">Whether the draft being reset holds a given receipt.</param>
+    /// <param name="cancellationToken">Cancels the database calls.</param>
+    public async Task ReleaseForReset(
+        string effectKey,
+        Func<string, bool> receiptRecorded,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var claim = await db
+            .EffectClaims.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.EffectKey == effectKey, cancellationToken);
+        if (claim is null)
+            return;
+
+        if (claim.Receipt is null)
+        {
+            var now = DateTimeOffset.UtcNow;
+            await db
+                .EffectClaims.Where(x =>
+                    x.EffectKey == effectKey && x.Receipt == null && x.LeaseExpiresAt < now
+                )
+                .ExecuteDeleteAsync(cancellationToken);
+            return;
+        }
+
+        if (!receiptRecorded(claim.Receipt))
+            return;
+        var receipt = claim.Receipt;
+        await db
+            .EffectClaims.Where(x => x.EffectKey == effectKey && x.Receipt == receipt)
+            .ExecuteDeleteAsync(cancellationToken);
+    }
 
     /// <inheritdoc/>
     public async Task<bool> ReleaseOwned(
