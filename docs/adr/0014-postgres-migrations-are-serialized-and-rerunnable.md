@@ -79,6 +79,6 @@ run changes anything.
 
 ## Changelog
 
-- **2026-09-29**: Recorded.
 - **2026-09-30**: The script session has a five-second `lock_timeout` with bounded retries, and the
   migrator drops only the invalid indexes a script builds.
+- **2026-09-29**: Recorded.

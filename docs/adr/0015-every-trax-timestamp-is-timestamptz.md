@@ -41,7 +41,7 @@ stored, and nothing can tell which rows those were, so it keeps its shift.
 - `SessionTimeZoneTests` writes the five columns from New York and Berlin sessions and reads the same
   instants back, checks a defaulted `created_at` is the current instant, and refuses any
   `timestamp without time zone` column in the `trax` schema.
-- `PostgresMigrationTests` runs 049 from a New York session and checks each table keeps its filenode
+- `PostgresMigrationTests.cs` runs 049 from a New York session and checks each table keeps its filenode
   and a stored wall-clock time reads as the same UTC instant.
 - [Database Migrations](/docs/migration-guides/database-migrations) says what 049 costs to apply.
 
@@ -50,6 +50,6 @@ going away would be caught only if a test runs that script from a non-UTC server
 
 ## Changelog
 
-- **2026-09-29**: Recorded.
 - **2026-09-30**: 049 edited before any real database ran it: UTC per block and no `USING`, so it no
   longer rewrites the tables.
+- **2026-09-29**: Recorded.
