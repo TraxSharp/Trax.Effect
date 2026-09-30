@@ -52,8 +52,8 @@ public class CreateWorkQueue
     /// <summary>
     /// Identifies what this work touches. Entries sharing a non-null key are not dispatched
     /// concurrently. Null means no serialization. <see cref="WorkQueue.Create"/> refuses an empty
-    /// or whitespace-only key, and one longer than <see cref="WorkQueue.MaxSubjectKeyLength"/>
-    /// characters.
+    /// or whitespace-only key, one holding a NUL character, and one longer than
+    /// <see cref="WorkQueue.MaxSubjectKeyLength"/> characters.
     /// </summary>
     public string? SubjectKey { get; set; }
 

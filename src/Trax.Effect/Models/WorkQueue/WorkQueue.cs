@@ -238,7 +238,7 @@ public class WorkQueue : IModel
     /// Creates a new WorkQueue entry with Queued status.
     /// </summary>
     /// <exception cref="ArgumentException">
-    /// <see cref="CreateWorkQueue.SubjectKey"/> is empty or whitespace, contains an unpaired surrogate, or is longer than
+    /// <see cref="CreateWorkQueue.SubjectKey"/> is empty or whitespace, contains a NUL character or an unpaired surrogate, or is longer than
     /// <see cref="MaxSubjectKeyLength"/> characters.
     /// </exception>
     public static WorkQueue Create(CreateWorkQueue dto)
@@ -273,6 +273,14 @@ public class WorkQueue : IModel
             throw new ArgumentException(
                 "A subject key cannot be empty or whitespace. Leave it null when the entry should "
                     + "not be serialized.",
+                paramName
+            );
+
+        // Postgres cannot store a NUL in text, and the key is compared exactly, so it is refused
+        // here rather than failing the insert or being rewritten into a different key.
+        if (key.Contains('\0'))
+            throw new ArgumentException(
+                $"A subject key cannot contain a NUL character (at position {key.IndexOf('\0')}).",
                 paramName
             );
 
