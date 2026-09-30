@@ -538,7 +538,7 @@ public class Manifest : IModel
             }
             catch (ArgumentException)
             {
-                // An assembly-qualified name is not a FullName, and no assembly holds it.
+                // GetType refuses an empty name with ArgumentException rather than returning null.
                 type = null;
             }
 

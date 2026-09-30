@@ -98,11 +98,10 @@ public class DataContextLoggingProvider : IDataContextLoggingProvider
             while (await reader.WaitToReadAsync(ct))
             {
                 batch.Clear();
+                // The loop is the queue's only reader, so after WaitToReadAsync returns true the
+                // batch holds at least one entry.
                 while (batch.Count < maxBatchSize && reader.TryRead(out var log))
                     batch.Add(log);
-
-                if (batch.Count == 0)
-                    continue;
 
                 try
                 {
