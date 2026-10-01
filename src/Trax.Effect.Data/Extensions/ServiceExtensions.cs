@@ -1,7 +1,11 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Trax.Core.Decisions;
 using Trax.Effect.Configuration.TraxEffectBuilder;
+using Trax.Effect.Data.Decisions;
 using Trax.Effect.Data.Services.DataContextLoggingProvider;
+using Trax.Effect.Extensions;
 
 namespace Trax.Effect.Data.Extensions;
 
@@ -81,6 +85,35 @@ public static class ServiceExtensions
         configurationBuilder
             .ServiceCollection.AddSingleton<IDataContextLoggingProviderConfiguration>(credentials)
             .AddSingleton<ILoggerProvider, DataContextLoggingProvider>();
+
+        return configurationBuilder;
+    }
+
+    /// <summary>
+    /// Records every decision a train makes (each question it asks a decider, the answer it acts
+    /// on, any shadow's answer, and the track it takes) in <c>trax.decision</c> against the run,
+    /// and makes a requeued run replay its original's decisions.
+    /// </summary>
+    /// <remarks>
+    /// Registers <see cref="DecisionJournal"/> as the <see cref="IDecisionObserver"/> and
+    /// <see cref="IDecisionReplay"/> that a train's <c>Decide</c>, <c>Switch</c>, <c>Gate</c> and
+    /// <c>Scale</c> steps find in the container, and a lifecycle hook that writes a run's decisions
+    /// when it finishes and loads the ones it replays when it starts. Each decision is also logged
+    /// as it is made. The hook cannot be switched off at run time, because the journal holds a
+    /// run's decisions until it writes them.
+    /// </remarks>
+    public static TraxEffectBuilderWithData AddDecisionRecording(
+        this TraxEffectBuilderWithData configurationBuilder
+    )
+    {
+        configurationBuilder.ServiceCollection.TryAddSingleton<DecisionJournal>();
+        configurationBuilder.ServiceCollection.TryAddSingleton<IDecisionObserver>(sp =>
+            sp.GetRequiredService<DecisionJournal>()
+        );
+        configurationBuilder.ServiceCollection.TryAddSingleton<IDecisionReplay>(sp =>
+            sp.GetRequiredService<DecisionJournal>()
+        );
+        configurationBuilder.AddLifecycleHook<DecisionRecordingHook>(toggleable: false);
 
         return configurationBuilder;
     }

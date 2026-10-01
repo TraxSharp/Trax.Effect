@@ -11,6 +11,7 @@ public class SqliteMigrationTests
     [
         "background_job",
         "dead_letter",
+        "decision",
         "log",
         "manifest",
         "manifest_group",

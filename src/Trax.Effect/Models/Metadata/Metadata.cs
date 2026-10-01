@@ -319,6 +319,20 @@ public class Metadata : IModel, IDisposable
     public long? ManifestId { get; set; }
 
     /// <summary>
+    /// The run whose recorded decisions this run replays, or null for a run that asks its
+    /// deciders afresh.
+    /// </summary>
+    /// <remarks>
+    /// Set when a run is requeued: the new run takes the tracks the original took instead of
+    /// asking again and possibly being answered differently. Not a foreign key, because the
+    /// original may be deleted first; a replay that finds nothing recorded asks afresh.
+    /// </remarks>
+    [Column("replay_decisions_of")]
+    [JsonPropertyName("replay_decisions_of")]
+    [JsonInclude]
+    public long? ReplayDecisionsOf { get; set; }
+
+    /// <summary>
     /// Gets the manifest that defines this train execution.
     /// </summary>
     /// <remarks>
@@ -395,6 +409,7 @@ public class Metadata : IModel, IDisposable
             StartTime = DateTime.UtcNow,
             ParentId = metadata.ParentId,
             ManifestId = metadata.ManifestId,
+            ReplayDecisionsOf = metadata.ReplayDecisionsOf,
             HostName = host?.HostName,
             HostEnvironment = host?.HostEnvironment,
             HostInstanceId = host?.HostInstanceId,

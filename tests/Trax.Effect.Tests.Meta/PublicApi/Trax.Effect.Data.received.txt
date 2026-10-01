@@ -1,3 +1,21 @@
+namespace Trax.Effect.Data.Decisions
+{
+    public sealed class DecisionJournal : Trax.Core.Decisions.IDecisionObserver, Trax.Core.Decisions.IDecisionReplay
+    {
+        public DecisionJournal(Microsoft.Extensions.Logging.ILogger<Trax.Effect.Data.Decisions.DecisionJournal>? logger = null) { }
+        public void Decided(Trax.Core.Decisions.DecisionMade decision) { }
+        public Trax.Core.Decisions.Answer? Replay(string train, string runId, string key, int occurrence) { }
+        public void Routed(Trax.Core.Decisions.TrackRouted routing) { }
+    }
+    public sealed class DecisionRecordingHook : Trax.Effect.Services.TrainLifecycleHook.ITrainLifecycleHook
+    {
+        public DecisionRecordingHook(Trax.Effect.Data.Services.DataContext.IDataContext dataContext, Trax.Effect.Data.Decisions.DecisionJournal journal, Microsoft.Extensions.Logging.ILogger<Trax.Effect.Data.Decisions.DecisionRecordingHook>? logger = null) { }
+        public System.Threading.Tasks.Task OnCancelled(Trax.Effect.Models.Metadata.Metadata metadata, System.Threading.CancellationToken ct) { }
+        public System.Threading.Tasks.Task OnCompleted(Trax.Effect.Models.Metadata.Metadata metadata, System.Threading.CancellationToken ct) { }
+        public System.Threading.Tasks.Task OnFailed(Trax.Effect.Models.Metadata.Metadata metadata, System.Exception exception, System.Threading.CancellationToken ct) { }
+        public System.Threading.Tasks.Task OnStarted(Trax.Effect.Models.Metadata.Metadata metadata, System.Threading.CancellationToken ct) { }
+    }
+}
 namespace Trax.Effect.Data.Extensions
 {
     public static class BuilderOrderExtensions
@@ -5,10 +23,14 @@ namespace Trax.Effect.Data.Extensions
         [System.Obsolete("Call UsePostgres(...), UseSqlite(...) or UseInMemory(...) before AddDataContextLo" +
             "gging(...).", true)]
         public static Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData AddDataContextLogging(this Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilder configurationBuilder, Microsoft.Extensions.Logging.LogLevel? minimumLogLevel = default, System.Collections.Generic.List<string>? blacklist = null) { }
+        [System.Obsolete("Call UsePostgres(...), UseSqlite(...) or UseInMemory(...) before AddDecisionRecor" +
+            "ding().", true)]
+        public static Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData AddDecisionRecording(this Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilder configurationBuilder) { }
     }
     public static class ServiceExtensions
     {
         public static Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData AddDataContextLogging(this Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData configurationBuilder, Microsoft.Extensions.Logging.LogLevel? minimumLogLevel = default, System.Collections.Generic.List<string>? blacklist = null) { }
+        public static Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData AddDecisionRecording(this Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData configurationBuilder) { }
     }
 }
 namespace Trax.Effect.Data.Junctions.BeginTransaction
@@ -31,6 +53,13 @@ namespace Trax.Effect.Data.Models
 {
     public interface IEntityReference { }
 }
+namespace Trax.Effect.Data.Models.RecordedDecision
+{
+    public class PersistentRecordedDecision : Trax.Effect.Models.RecordedDecision.RecordedDecision
+    {
+        public PersistentRecordedDecision() { }
+    }
+}
 namespace Trax.Effect.Data.Services.DataContext
 {
     public class DataContext<TDbContext> : Microsoft.EntityFrameworkCore.DbContext, System.IAsyncDisposable, System.IDisposable, Trax.Effect.Data.Services.DataContext.IDataContext, Trax.Effect.Services.EffectProvider.IEffectProvider, Trax.Effect.Services.EffectProvider.IPendingRunClaim
@@ -47,6 +76,7 @@ namespace Trax.Effect.Data.Services.DataContext
         public Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.Metadata.Metadata> Metadatas { get; set; }
         public Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.PersistedOperationHistory.PersistedOperationHistory> PersistedOperationHistories { get; set; }
         public Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.PersistedOperation.PersistedOperation> PersistedOperations { get; set; }
+        public Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.RecordedDecision.RecordedDecision> RecordedDecisions { get; set; }
         public Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.RunnerNonce.RunnerNonce> RunnerNonces { get; set; }
         public Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.SchedulerConfig.SchedulerConfig> SchedulerConfigs { get; set; }
         public Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.SnapshotDraft.SnapshotDraft> SnapshotDrafts { get; set; }
@@ -76,6 +106,7 @@ namespace Trax.Effect.Data.Services.DataContext
         Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.Metadata.Metadata> Metadatas { get; }
         Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.PersistedOperationHistory.PersistedOperationHistory> PersistedOperationHistories { get; }
         Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.PersistedOperation.PersistedOperation> PersistedOperations { get; }
+        Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.RecordedDecision.RecordedDecision> RecordedDecisions { get; }
         Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.RunnerNonce.RunnerNonce> RunnerNonces { get; }
         Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.SchedulerConfig.SchedulerConfig> SchedulerConfigs { get; }
         Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.SnapshotDraft.SnapshotDraft> SnapshotDrafts { get; }

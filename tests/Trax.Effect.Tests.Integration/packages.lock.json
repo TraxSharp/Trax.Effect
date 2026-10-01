@@ -394,6 +394,12 @@
           "dbup-postgresql": "[7.0.1, )"
         }
       },
+      "trax.effect.decisions.systemone": {
+        "type": "Project",
+        "dependencies": {
+          "Trax.Effect": "[1.99.99, )"
+        }
+      },
       "trax.effect.junctionprovider.logging": {
         "type": "Project",
         "dependencies": {

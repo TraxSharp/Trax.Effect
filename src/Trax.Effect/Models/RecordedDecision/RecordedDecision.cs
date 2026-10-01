@@ -1,0 +1,73 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
+namespace Trax.Effect.Models.RecordedDecision;
+
+/// <summary>
+/// Base model for <c>trax.decision</c>: one question a train asked a decider during a run, the
+/// answer it acted on, and the track it took.
+/// </summary>
+/// <remarks>
+/// Written when the run finishes by <c>AddDecisionRecording</c>, and read back to replay a run's
+/// decisions when it is requeued. EF Core mapping lives in
+/// <c>Trax.Effect.Data.Models.RecordedDecision.PersistentRecordedDecision</c>; the table
+/// ships in the core migration set (Postgres <c>054</c>, Sqlite <c>019</c>) and is deleted with
+/// its run.
+/// </remarks>
+public class RecordedDecision
+{
+    /// <summary>The row's identity.</summary>
+    [Column("id")]
+    public long Id { get; set; }
+
+    /// <summary>The run that asked.</summary>
+    [Column("metadata_id")]
+    public long MetadataId { get; set; }
+
+    /// <summary>The question's key: the name of the enum or marker type it is about.</summary>
+    [Column("question_key")]
+    public string QuestionKey { get; set; } = null!;
+
+    /// <summary>Which asking of the question this was in the run, from 0.</summary>
+    [Column("occurrence")]
+    public int Occurrence { get; set; }
+
+    /// <summary><c>choice</c>, <c>score</c> or <c>yes_no</c>.</summary>
+    [Column("kind")]
+    public string Kind { get; set; } = null!;
+
+    /// <summary>The question as asked, with its instructions and criteria, as JSON.</summary>
+    [Column("question")]
+    public string Question { get; set; } = null!;
+
+    /// <summary>The answer the run acted on, as JSON.</summary>
+    [Column("answer")]
+    public string Answer { get; set; } = null!;
+
+    /// <summary>The model and version that answered, or null for a decider that is not a model.</summary>
+    [Column("model")]
+    public string? Model { get; set; }
+
+    /// <summary>The decider's type, or null when the answer was replayed.</summary>
+    [Column("decider")]
+    public string? Decider { get; set; }
+
+    /// <summary>True when the answer came from an earlier run rather than a decider.</summary>
+    [Column("replayed")]
+    public bool Replayed { get; set; }
+
+    /// <summary>What each shadow decider answered and whether it agreed, as JSON, or null.</summary>
+    [Column("shadows")]
+    public string? Shadows { get; set; }
+
+    /// <summary>The track a routing step took on this decision, or null when nothing routed on it.</summary>
+    [Column("track")]
+    public string? Track { get; set; }
+
+    /// <summary>Why the decision was not followed, or null when it was.</summary>
+    [Column("fallback_reason")]
+    public string? FallbackReason { get; set; }
+
+    /// <summary>When the question was answered.</summary>
+    [Column("decided_at")]
+    public DateTime DecidedAt { get; set; }
+}
