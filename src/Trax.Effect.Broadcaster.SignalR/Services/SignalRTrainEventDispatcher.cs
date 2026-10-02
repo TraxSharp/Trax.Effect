@@ -16,7 +16,9 @@ namespace Trax.Effect.Broadcaster.SignalR.Services;
 /// Registered as a singleton; exposed in DI as both an <see cref="ITrainLifecycleHook"/>
 /// (so local events fire directly without a transport hop) and an
 /// <see cref="ITrainEventHandler"/> (so remote events received via the broadcaster
-/// transport, e.g. RabbitMQ, also reach connected clients).
+/// transport, e.g. RabbitMQ, also reach connected clients). With <c>WithJunctionEvents()</c> it is
+/// also an <see cref="IJunctionEventHandler"/>, and sends each step of a run through the
+/// <c>"JunctionEvent"</c> client method; without it, a junction event is never sent.
 /// </summary>
 /// <remarks>
 /// A train awaits its lifecycle hooks inline, so the hook never waits on delivery to clients.
@@ -27,6 +29,7 @@ namespace Trax.Effect.Broadcaster.SignalR.Services;
 internal sealed class SignalRTrainEventDispatcher
     : ITrainLifecycleHook,
         ITrainEventHandler,
+        IJunctionEventHandler,
         IHostedService,
         IAsyncDisposable,
         IDisposable
@@ -93,8 +96,10 @@ internal sealed class SignalRTrainEventDispatcher
         DispatchAsync(BuildMessage(metadata, "StateChanged"), ct);
 
     /// <summary>
-    /// Queues an event received from another process. A data-change signal rides the same
-    /// transport but is not a train event: it names no train, so it is not sent to clients.
+    /// Queues an event received from another process, or a junction event from this one. A
+    /// data-change signal rides the same transport but is not a train event: it names no train, so
+    /// it is not sent to clients. A junction event is queued only when the sink was configured with
+    /// <c>WithJunctionEvents()</c>.
     /// </summary>
     public Task HandleAsync(TrainLifecycleEventMessage message, CancellationToken ct) =>
         message.EventType == TrainLifecycleEventMessage.DataChangedEventType
@@ -164,6 +169,17 @@ internal sealed class SignalRTrainEventDispatcher
     {
         try
         {
+            if (SignalRSinkConfiguration.IsJunctionEvent(message))
+            {
+                // Matches already refused it unless junction events were asked for; one with no
+                // step has nothing to send.
+                if (message.Junction is { } step)
+                    await _hub.Clients.All.JunctionEvent(
+                        DefaultTraxJunctionClientEventProjection.Project(message, step)
+                    );
+                return;
+            }
+
             var payload = _config.Projection(message);
             await _hub.Clients.All.TrainEvent(payload);
         }

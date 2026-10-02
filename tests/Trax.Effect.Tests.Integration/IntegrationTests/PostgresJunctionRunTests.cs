@@ -1,0 +1,161 @@
+using FluentAssertions;
+using LanguageExt;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Trax.Core.Decisions;
+using Trax.Core.Exceptions;
+using Trax.Effect.Data.Extensions;
+using Trax.Effect.Data.JunctionEvents;
+using Trax.Effect.Data.Postgres.Extensions;
+using Trax.Effect.Data.Services.IDataContextFactory;
+using Trax.Effect.Enums;
+using Trax.Effect.Extensions;
+using Trax.Effect.Models.JunctionRun;
+using Trax.Effect.Services.EffectJunction;
+using Trax.Effect.Services.FailureClassifier;
+using Trax.Effect.Services.ServiceTrain;
+using Trax.Effect.Tests.Integration.Fixtures;
+
+namespace Trax.Effect.Tests.Integration.IntegrationTests;
+
+/// <summary>
+/// <c>AddJunctionEvents</c> against Postgres: a run's steps are <c>trax.junction_run</c> rows,
+/// with their kind, state and failure class in the Trax enum types, read back in order, and
+/// deleted with their run.
+///
+/// <para>Enforces docs/adr/0019-junction-events-are-opt-in-and-carry-no-run-data.md.</para>
+/// </summary>
+[TestFixture]
+[NonParallelizable]
+[Property("adr", "docs/adr/0019-junction-events-are-opt-in-and-carry-no-run-data.md")]
+public class PostgresJunctionRunTests
+{
+    private const string Adr = "docs/adr/0019-junction-events-are-opt-in-and-carry-no-run-data.md";
+
+    private ServiceProvider _provider = null!;
+
+    [OneTimeSetUp]
+    public void BuildProvider()
+    {
+        var configuration = new ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile("appsettings.json", optional: false)
+            .Build();
+        var connectionString = TestPostgres.WithPort(
+            configuration.GetRequiredSection("Configuration")["DatabaseConnectionString"]!
+        );
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<IDecider>(new ScriptedDecider().Choose(PgBin.Small, 0.75));
+        services.AddSingleton<IFailureClassifier, PgStepClassifier>();
+        services.AddTrax(trax =>
+            trax.AddEffects(effects => effects.UsePostgres(connectionString).AddJunctionEvents())
+        );
+        services.AddScopedTraxRoute<IPgStepsTrain, PgStepsTrain>();
+        _provider = services.BuildServiceProvider();
+    }
+
+    [OneTimeTearDown]
+    public async Task DisposeProvider() => await _provider.DisposeAsync();
+
+    [Test]
+    public async Task A_runs_steps_are_rows_read_back_in_order()
+    {
+        var metadataId = await Run();
+
+        var rows = await Rows(metadataId);
+        rows.Select(r => (r.Position, r.Kind, r.Name, r.State))
+            .Should()
+            .Equal(
+                (0, JunctionRunKind.Junction, nameof(PgMeasure), JunctionRunState.Completed),
+                (1, JunctionRunKind.Choice, "PgBin", JunctionRunState.Completed),
+                (2, JunctionRunKind.Route, "PgBin", JunctionRunState.Completed),
+                (3, JunctionRunKind.Junction, nameof(PgBreak), JunctionRunState.Failed)
+            );
+        rows[1].Answer.Should().Be("Small");
+        rows[1].Confidence.Should().Be(0.75);
+        rows[3].FailureClass.Should().Be(FailureClass.Conflict);
+        rows[3].FailureException.Should().Be(nameof(InvalidOperationException));
+        rows[3].EndedAt.Should().BeOnOrAfter(rows[3].StartedAt);
+
+        await Delete(metadataId);
+    }
+
+    [Test]
+    public async Task A_runs_steps_are_deleted_with_it()
+    {
+        var metadataId = await Run();
+        (await Rows(metadataId)).Should().NotBeEmpty();
+
+        await Delete(metadataId);
+
+        (await Rows(metadataId)).Should().BeEmpty($"the foreign key cascades. See {Adr}.");
+    }
+
+    private async Task<long> Run()
+    {
+        using var scope = _provider.CreateScope();
+        var train = (PgStepsTrain)scope.ServiceProvider.GetRequiredService<IPgStepsTrain>();
+        var run = async () => await train.Run(new PgItem(3));
+        await run.Should().ThrowAsync<InvalidOperationException>();
+
+        await _provider.GetRequiredService<JunctionRunWriter>().FlushAsync();
+        return train.Metadata!.Id;
+    }
+
+    private async Task<List<JunctionRun>> Rows(long metadataId)
+    {
+        var factory = _provider.GetRequiredService<IDataContextProviderFactory>();
+        using var context = await factory.CreateDbContextAsync(CancellationToken.None);
+        return await context.JunctionRuns.AsNoTracking().ForRun(metadataId).ToListAsync();
+    }
+
+    private async Task Delete(long metadataId)
+    {
+        var factory = _provider.GetRequiredService<IDataContextProviderFactory>();
+        using var context = await factory.CreateDbContextAsync(CancellationToken.None);
+        await context.Metadatas.Where(m => m.Id == metadataId).ExecuteDeleteAsync();
+    }
+}
+
+public sealed record PgItem(int Size);
+
+[Asks("Which bin does this item go in?")]
+public enum PgBin
+{
+    Small,
+    Large,
+}
+
+public class PgMeasure : EffectJunction<PgItem, PgItem>
+{
+    public override Task<PgItem> Run(PgItem input) => Task.FromResult(input);
+}
+
+public class PgBreak : EffectJunction<PgItem, string>
+{
+    public override Task<string> Run(PgItem input) =>
+        throw new InvalidOperationException("the bin is jammed");
+}
+
+public sealed class PgStepClassifier : IFailureClassifier
+{
+    public FailureClass? Classify(Exception exception) =>
+        exception is InvalidOperationException ? FailureClass.Conflict : null;
+}
+
+public interface IPgStepsTrain : IServiceTrain<PgItem, string>;
+
+public class PgStepsTrain : ServiceTrain<PgItem, string>, IPgStepsTrain
+{
+    protected override Task<Either<Exception, string>> Junctions() =>
+        Chain<PgMeasure>()
+            .Switch<PgItem, PgBin>(tracks =>
+                tracks
+                    .When(PgBin.Small, t => t.Chain<PgBreak>())
+                    .When(PgBin.Large, t => t.Chain<PgBreak>())
+            )
+            .Resolve();
+}

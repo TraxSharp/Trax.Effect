@@ -11,7 +11,8 @@ public partial class SignalRSinkOptions
             eventTypeFilter: _eventTypes,
             trainNameFilter: _trainNames,
             projection: _projection,
-            deliveryQueueCapacity: _deliveryQueueCapacity
+            deliveryQueueCapacity: _deliveryQueueCapacity,
+            junctionEvents: _junctionEvents
         );
     }
 }

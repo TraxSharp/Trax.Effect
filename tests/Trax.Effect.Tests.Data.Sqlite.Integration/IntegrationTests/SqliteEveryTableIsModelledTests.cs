@@ -121,6 +121,27 @@ public class SqliteEveryTableIsModelledTests : TestSetup
             );
     }
 
+    [Test]
+    public async Task Junction_run_is_mapped_column_for_column()
+    {
+        using var context = NewContext();
+        var migrated = await MigratedColumns(context);
+        var mapped = MappedColumns(context);
+
+        mapped
+            .Should()
+            .ContainKey(
+                "junction_run",
+                $"AddJunctionEvents reaches junction_run through IDataContext.JunctionRuns. See {Adr}."
+            );
+        mapped["junction_run"]
+            .Should()
+            .BeEquivalentTo(
+                migrated["junction_run"],
+                $"the JunctionRun model maps exactly the columns its migration creates. See {Adr}."
+            );
+    }
+
     [TestCase("snapshot_draft")]
     [TestCase("effect_claim")]
     public async Task State_machine_tables_are_mapped_column_for_column(string table)

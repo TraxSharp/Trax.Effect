@@ -14,11 +14,11 @@ namespace Trax.Effect.Broadcaster.RabbitMQ;
 /// <para>
 /// A train awaits its lifecycle hooks inline, so publishing never waits on the broker.
 /// <see cref="PublishAsync"/> writes the event to a bounded queue and returns; one background
-/// sender publishes the queue in order. When the queue is full it gives up a non-terminal event
-/// (<c>Started</c>, <c>StateChanged</c>, <c>DataChanged</c>) before a terminal one (<c>Completed</c>,
-/// <c>Failed</c>, <c>Cancelled</c>): an incoming non-terminal event is dropped, and an incoming
-/// terminal event replaces the oldest queued non-terminal one. Every drop is counted and logged,
-/// and the train carries on.
+/// sender publishes the queue in order. When the queue is full it gives up a junction event
+/// before any train event, and a non-terminal train event (<c>Started</c>, <c>StateChanged</c>,
+/// <c>DataChanged</c>) before a terminal one (<c>Completed</c>, <c>Failed</c>, <c>Cancelled</c>): an
+/// incoming junction event is dropped, and any other incoming event replaces the oldest queued
+/// event of a lower rank. Every drop is counted and logged, and the train carries on.
 /// </para>
 /// <para>
 /// Each publish waits for the broker's confirm, bounded by <see cref="PublishTimeout"/>. An event
@@ -146,7 +146,8 @@ internal class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDis
             _logger?.LogWarning(
                 "RabbitMQ broadcaster queue is full ({Capacity} events): dropping {EventType} for "
                     + "train {TrainName} ({ExternalId}) and further events until the broker catches up. "
-                    + "Terminal events are kept in preference to Started and other non-terminal ones.",
+                    + "Train events are kept in preference to junction events, and terminal ones in "
+                    + "preference to Started and other non-terminal ones.",
                 _queueCapacity,
                 dropped.EventType,
                 dropped.TrainName,

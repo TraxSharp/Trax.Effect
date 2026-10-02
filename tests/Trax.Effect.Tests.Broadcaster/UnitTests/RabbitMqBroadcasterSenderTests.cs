@@ -474,6 +474,37 @@ public class RabbitMqBroadcasterSenderTests
     }
 
     [Test]
+    public async Task AFullQueue_GivesUpJunctionEventsBeforeAnyTrainEvent()
+    {
+        var connection = OpenConnection();
+        var channel = OpenChannel();
+        var held = new Gate();
+        ChannelsFrom(connection, () => held.Pass(channel));
+        var published = Records(channel);
+        var broadcaster = Broadcaster(connection, new CapturingLogger(), queueCapacity: 2);
+
+        await broadcaster.PublishAsync(Message("held"), CancellationToken.None);
+        await held.Entered.WaitAsync(Timeout); // the sender holds this one; the queue is empty
+        await broadcaster.PublishAsync(Message("j1", "JunctionStarted"), CancellationToken.None);
+        await broadcaster.PublishAsync(Message("j2", "Decided"), CancellationToken.None); // full
+        await broadcaster.PublishAsync(Message("s"), CancellationToken.None);
+        await broadcaster.PublishAsync(Message("j3", "JunctionCompleted"), CancellationToken.None);
+        await broadcaster.PublishAsync(Message("s", "Completed"), CancellationToken.None);
+
+        held.Release();
+        await published.Reaches(3).WaitAsync(Timeout);
+        await broadcaster.DisposeAsync();
+
+        published
+            .Events.Should()
+            .Equal(
+                [("held", "Started"), ("s", "Started"), ("s", "Completed")],
+                "a full queue gives up a run's steps before any run's own events"
+            );
+        broadcaster.DroppedEvents.Should().Be(3);
+    }
+
+    [Test]
     public async Task DisposeAsync_WhileTheBrokerIsUnreachable_DoesNotWaitOutTheDrain()
     {
         var connection = OpenConnection();

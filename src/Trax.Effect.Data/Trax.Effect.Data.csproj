@@ -16,4 +16,10 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
     <PackageReference Include="Npgsql" />
   </ItemGroup>
+  <!-- The junction run writer's flush is for tests that read the rows it writes. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Trax.Effect.Tests.Integration" />
+    <InternalsVisibleTo Include="Trax.Effect.Tests.Data.InMemory.Integration" />
+    <InternalsVisibleTo Include="Trax.Effect.Tests.Data.Sqlite.Integration" />
+  </ItemGroup>
 </Project>

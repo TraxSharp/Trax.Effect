@@ -16,6 +16,7 @@ using Trax.Effect.Models.Metadata.DTOs;
 using Trax.Effect.Services.Decisions;
 using Trax.Effect.Services.EffectRunner;
 using Trax.Effect.Services.JunctionEffectRunner;
+using Trax.Effect.Services.JunctionEvents;
 using Trax.Effect.Services.LifecycleHookOutputPolicy;
 using Trax.Effect.Services.LifecycleHookRunner;
 
@@ -405,6 +406,13 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
             // before it asks anything.
             DecisionRun.Current = await BeginDecisions();
 
+            // The same for the run's junction events, when the host publishes them
+            // (AddJunctionEvents): its junctions and decisions report against this run only.
+            JunctionEventRun.Current = ServiceProvider.GetService(typeof(JunctionEventPublisher))
+                is JunctionEventPublisher junctionEvents
+                ? junctionEvents.Begin(Metadata, GetType(), ServiceProvider)
+                : null;
+
             Logger?.LogTrace("Running Train: ({TrainName})", TrainName);
             result = await RunEither(input);
         }
@@ -417,6 +425,7 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
             // The run decides nothing after its junctions, so its decision state goes now, on
             // every path, rather than with whatever terminal write or hook comes next.
             DecisionRun.Current = null;
+            JunctionEventRun.Current = null;
         }
 
         if (result.IsLeft)

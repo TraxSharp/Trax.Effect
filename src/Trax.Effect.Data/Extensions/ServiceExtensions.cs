@@ -4,9 +4,12 @@ using Microsoft.Extensions.Logging;
 using Trax.Core.Decisions;
 using Trax.Effect.Configuration.TraxEffectBuilder;
 using Trax.Effect.Data.Decisions;
+using Trax.Effect.Data.JunctionEvents;
 using Trax.Effect.Data.Services.DataContextLoggingProvider;
 using Trax.Effect.Extensions;
 using Trax.Effect.Services.Decisions;
+using Trax.Effect.Services.JunctionEvents;
+using Trax.Effect.Services.TrainEventBroadcaster;
 
 namespace Trax.Effect.Data.Extensions;
 
@@ -105,6 +108,12 @@ public static class ServiceExtensions
     /// questions it never reached, of the runs it replayed in turn; it fails, classified
     /// permanent, when a run in that chain does not exist, belongs to another train, or ran
     /// without recording its decisions. Calling this more than once registers it once.
+    ///
+    /// <para>The journal is told about each decision alongside every other
+    /// <see cref="IDecisionObserver"/>: one the host registered before this call, and the one
+    /// <c>AddJunctionEvents</c> adds. It is told first, because the decision is not acted on unless it
+    /// is written. An observer registered as <see cref="IDecisionObserver"/> after <c>AddTrax</c>
+    /// replaces them all, as the container would; register it before.</para>
     /// </remarks>
     public static TraxEffectBuilderWithData AddDecisionRecording(
         this TraxEffectBuilderWithData configurationBuilder
@@ -113,10 +122,76 @@ public static class ServiceExtensions
         var services = configurationBuilder.ServiceCollection;
 
         services.TryAddSingleton<DecisionJournal>();
-        services.TryAddSingleton<IDecisionObserver>(sp => sp.GetRequiredService<DecisionJournal>());
+        // Beside any other observer (a host's own, junction events), never in place of one.
+        DecisionObservers.Add(
+            services,
+            typeof(DecisionJournal),
+            sp => sp.GetRequiredService<DecisionJournal>(),
+            ServiceLifetime.Singleton
+        );
         services.TryAddSingleton<IDecisionReplay>(sp => sp.GetRequiredService<DecisionJournal>());
         services.TryAddSingleton<IDecisionRunRecorder>(sp =>
             sp.GetRequiredService<DecisionJournal>()
+        );
+
+        return configurationBuilder;
+    }
+
+    /// <summary>
+    /// Publishes each step of every run, live, and records it in <c>trax.junction_run</c>: each
+    /// junction as it starts and ends, each question a routing step asks (<c>Decide</c>,
+    /// <c>Switch</c>, <c>Gate</c>, <c>Scale</c>) and the answer the run acts on, and each track it
+    /// takes. Off unless this is called.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>What is published.</b> Each step is a <see cref="TrainLifecycleEventMessage"/> with a
+    /// junction event type (<c>JunctionStarted</c>, <c>JunctionCompleted</c>, <c>JunctionFailed</c>,
+    /// <c>JunctionCancelled</c>, <c>Decided</c>, <c>DecisionRefused</c>, <c>Routed</c>) and the step
+    /// in <see cref="TrainLifecycleEventMessage.Junction"/>. It goes to the host's
+    /// <see cref="IJunctionEventHandler"/>s on the run's path, and over the transport
+    /// <c>UseBroadcaster</c> configured, when there is one, to the junction event handlers of other
+    /// hosts. It never reaches an <see cref="ITrainEventHandler"/>, and the SignalR sink sends it to
+    /// clients only when configured with <c>WithJunctionEvents()</c>.</para>
+    ///
+    /// <para><b>What is never published or stored:</b> a junction's input or output, the train's
+    /// input or output, a failure's message, or the state, instructions or criteria of a question.
+    /// A failed junction is described by its exception's type and its failure class. A question's
+    /// answer is summarised (the option, score or probability of yes, and the confidence), and left
+    /// out entirely, track included, for a question about a type marked <c>[TraxSensitive]</c>.
+    /// The junctions a track runs are still named in their own steps.</para>
+    ///
+    /// <para><b>What it costs a run.</b> Nothing it does can fail a run or change a junction's
+    /// result: a failure to store, broadcast or hand out a step is logged and swallowed. A step is
+    /// stored by a background writer, so the run never waits on the database; the shipped
+    /// transports queue rather than wait too. Local handlers run on the run's path and must return
+    /// quickly. A junction skipped because an earlier one failed is not a step.</para>
+    ///
+    /// <para><b>Retention.</b> A step's row is deleted with its run's metadata row, by the foreign
+    /// key's cascade, so every existing delete of metadata removes it.</para>
+    ///
+    /// <para>Calling this more than once registers it once. Its decision observer is told alongside
+    /// any other, after the ones that are required, such as <c>AddDecisionRecording</c>'s.</para>
+    /// </remarks>
+    public static TraxEffectBuilderWithData AddJunctionEvents(
+        this TraxEffectBuilderWithData configurationBuilder
+    )
+    {
+        var services = configurationBuilder.ServiceCollection;
+
+        if (services.Any(d => d.ServiceType == typeof(JunctionEventPublisher)))
+            return configurationBuilder;
+
+        services.AddSingleton<JunctionEventPublisher>();
+        services.AddSingleton<JunctionRunWriter>();
+        services.AddSingleton<IJunctionRunSink>(sp => sp.GetRequiredService<JunctionRunWriter>());
+        // Stopping the host drains the steps still queued for the database.
+        services.AddHostedService(sp => sp.GetRequiredService<JunctionRunWriter>());
+
+        DecisionObservers.Add(
+            services,
+            typeof(JunctionEventDecisionObserver),
+            _ => new JunctionEventDecisionObserver(),
+            ServiceLifetime.Singleton
         );
 
         return configurationBuilder;

@@ -25,11 +25,22 @@ namespace Trax.Effect.Data.Extensions
         [System.Obsolete("Call UsePostgres(...), UseSqlite(...) or UseInMemory(...) before AddDecisionRecor" +
             "ding().", true)]
         public static Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData AddDecisionRecording(this Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilder configurationBuilder) { }
+        [System.Obsolete("Call UsePostgres(...), UseSqlite(...) or UseInMemory(...) before AddJunctionEvent" +
+            "s().", true)]
+        public static Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData AddJunctionEvents(this Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilder configurationBuilder) { }
     }
     public static class ServiceExtensions
     {
         public static Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData AddDataContextLogging(this Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData configurationBuilder, Microsoft.Extensions.Logging.LogLevel? minimumLogLevel = default, System.Collections.Generic.List<string>? blacklist = null) { }
         public static Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData AddDecisionRecording(this Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData configurationBuilder) { }
+        public static Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData AddJunctionEvents(this Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData configurationBuilder) { }
+    }
+}
+namespace Trax.Effect.Data.JunctionEvents
+{
+    public static class JunctionRunQueries
+    {
+        public static System.Linq.IOrderedQueryable<Trax.Effect.Models.JunctionRun.JunctionRun> ForRun(this System.Linq.IQueryable<Trax.Effect.Models.JunctionRun.JunctionRun> runs, long metadataId) { }
     }
 }
 namespace Trax.Effect.Data.Junctions.BeginTransaction
@@ -52,6 +63,13 @@ namespace Trax.Effect.Data.Models
 {
     public interface IEntityReference { }
 }
+namespace Trax.Effect.Data.Models.JunctionRun
+{
+    public class PersistentJunctionRun : Trax.Effect.Models.JunctionRun.JunctionRun
+    {
+        public PersistentJunctionRun() { }
+    }
+}
 namespace Trax.Effect.Data.Models.RecordedDecision
 {
     public class PersistentRecordedDecision : Trax.Effect.Models.RecordedDecision.RecordedDecision
@@ -69,6 +87,7 @@ namespace Trax.Effect.Data.Services.DataContext
         public int Changes { get; set; }
         public Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.DeadLetter.DeadLetter> DeadLetters { get; set; }
         public Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.EffectClaim.EffectClaim> EffectClaims { get; set; }
+        public Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.JunctionRun.JunctionRun> JunctionRuns { get; set; }
         public Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.Log.Log> Logs { get; set; }
         public Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.ManifestGroup.ManifestGroup> ManifestGroups { get; set; }
         public Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.Manifest.Manifest> Manifests { get; set; }
@@ -99,6 +118,7 @@ namespace Trax.Effect.Data.Services.DataContext
         int Changes { get; set; }
         Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.DeadLetter.DeadLetter> DeadLetters { get; }
         Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.EffectClaim.EffectClaim> EffectClaims { get; }
+        Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.JunctionRun.JunctionRun> JunctionRuns { get; }
         Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.Log.Log> Logs { get; }
         Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.ManifestGroup.ManifestGroup> ManifestGroups { get; }
         Microsoft.EntityFrameworkCore.DbSet<Trax.Effect.Models.Manifest.Manifest> Manifests { get; }
