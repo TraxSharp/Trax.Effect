@@ -24,8 +24,9 @@ internal sealed record DecisionObserverPart(object Key, Type? Tag);
 /// best-effort observers are told, each failure logged and swallowed.</para>
 ///
 /// <para>An observer registered before Trax's own is folded in when Trax's is added. One registered
-/// after it, as <see cref="IDecisionObserver"/>, is what the container returns instead, as it would
-/// be without the composite; register it before <c>AddTrax</c> to have both.</para>
+/// after it, as <see cref="IDecisionObserver"/>, is what the container returns instead, so while a
+/// required observer is a part, <see cref="DecisionObserverCheck"/> refuses the host's start and every
+/// run that records its decisions; register it before <c>AddTrax</c> to have both.</para>
 /// </remarks>
 internal sealed class CompositeDecisionObserver : IDecisionObserver
 {
@@ -151,7 +152,11 @@ internal static class DecisionObservers
                 && d.ImplementationType == typeof(CompositeDecisionObserver)
             )
         )
+        {
             services.AddTransient<IDecisionObserver, CompositeDecisionObserver>();
+            services.AddSingleton<DecisionObserverCheck>();
+            services.AddHostedService(sp => sp.GetRequiredService<DecisionObserverCheck>());
+        }
     }
 
     private static ServiceDescriptor Keyed(ServiceDescriptor descriptor, object key) =>

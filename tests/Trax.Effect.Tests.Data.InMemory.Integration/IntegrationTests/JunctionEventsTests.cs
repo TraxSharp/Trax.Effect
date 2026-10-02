@@ -4,6 +4,7 @@ using FluentAssertions;
 using LanguageExt;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Trax.Core.Decisions;
 using Trax.Core.Exceptions;
 using Trax.Effect.Attributes;
@@ -18,6 +19,7 @@ using Trax.Effect.Models.Manifest;
 using Trax.Effect.Models.Manifest.DTOs;
 using Trax.Effect.Models.Metadata;
 using Trax.Effect.Models.Metadata.DTOs;
+using Trax.Effect.Services.Decisions;
 using Trax.Effect.Services.EffectJunction;
 using Trax.Effect.Services.FailureClassifier;
 using Trax.Effect.Services.JunctionEvents;
@@ -360,6 +362,57 @@ public class JunctionEventsTests
         (await context.RecordedDecisions.CountAsync(d => d.MetadataId == train.Metadata.Id))
             .Should()
             .Be(1, "decision recording is told as well");
+    }
+
+    [Test]
+    public async Task An_observer_registered_after_AddTrax_refuses_the_host_and_every_recorded_run()
+    {
+        var observer = new CountingObserver();
+        await using var provider = JunctionEventTrains
+            .Register(new ServiceCollection(), Decider)
+            .AddTrax(trax =>
+                trax.AddEffects(effects =>
+                    effects.UseInMemory().AddDecisionRecording().AddJunctionEvents()
+                )
+            )
+            .AddSingleton<IDecisionObserver>(observer)
+            .BuildServiceProvider();
+        Decider.Use(new ScriptedDecider().Choose(Lane.Express, 0.9));
+
+        var gate = provider
+            .GetServices<IHostedService>()
+            .OfType<DecisionObserverCheck>()
+            .Should()
+            .ContainSingle()
+            .Subject;
+        var start = () => gate.StartingAsync(CancellationToken.None);
+        await start
+            .Should()
+            .ThrowAsync<InvalidOperationException>(
+                $"a decision would be acted on without being recorded. See {Adr}."
+            )
+            .WithMessage("*before AddTrax*");
+
+        using var scope = provider.CreateScope();
+        var train = scope.ServiceProvider.GetRequiredService<ILaneTrain>();
+        var run = async () => await train.Run(JunctionEventTrains.Parcel());
+        await run.Should().ThrowAsync<InvalidOperationException>().WithMessage("*before AddTrax*");
+        observer.Decided.Should().Be(0, "the run refused before it asked anything");
+    }
+
+    [Test]
+    public async Task An_observer_registered_after_AddTrax_is_allowed_when_nothing_must_record()
+    {
+        await using var provider = JunctionEventTrains
+            .Register(new ServiceCollection(), Decider)
+            .AddTrax(trax => trax.AddEffects(effects => effects.UseInMemory().AddJunctionEvents()))
+            .AddSingleton<IDecisionObserver>(new CountingObserver())
+            .BuildServiceProvider();
+
+        var gate = provider.GetServices<IHostedService>().OfType<DecisionObserverCheck>().Single();
+        var start = () => gate.StartingAsync(CancellationToken.None);
+
+        await start.Should().NotThrowAsync();
     }
 
     [Test]

@@ -611,7 +611,31 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
             ServiceProvider?.GetService(typeof(IDecisionRunRecorder))
             is IDecisionRunRecorder recorder
         )
+        {
+            // A run that records its decisions refuses to start when an observer registered after
+            // AddTrax would keep the recording from being told about them.
+            if (
+                ServiceProvider.GetService(typeof(DecisionObserverCheck))
+                is DecisionObserverCheck check
+            )
+            {
+                try
+                {
+                    check.ThrowIfReplaced();
+                }
+                catch (InvalidOperationException e)
+                {
+                    throw DecisionRun.Classified(
+                        e,
+                        Metadata.Name,
+                        Metadata.ExternalId,
+                        FailureClass.Permanent
+                    );
+                }
+            }
+
             return await recorder.Begin(Metadata, GetType(), CancellationToken);
+        }
 
         if (Metadata.ReplayDecisionsOf is not null)
             throw DecisionRun.Unreplayable(

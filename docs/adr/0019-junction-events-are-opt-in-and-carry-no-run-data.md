@@ -101,7 +101,10 @@ steps. A host whose track choice is itself secret should not turn junction event
 **Decision observers compose.** Trax.Core finds one `IDecisionObserver` in the container. Trax now
 registers a composite that tells every observer registered before `AddTrax` and every one Trax adds
 (decision recording, junction events): required ones first, so a decision that could not be
-recorded is not reported as made, then best-effort ones.
+recorded is not reported as made, then best-effort ones. An observer registered after `AddTrax` replaces the composite in the
+container; while a required observer such as decision recording is a part, the host refuses to
+start and every run that would record its decisions refuses too, so no decision is acted on
+unrecorded.
 
 **A manifest's run carries its attempt.** When the run begins, one query on a context of its own
 counts the manifest's failed runs since its last completed or cancelled one, skipping the dispatch
@@ -135,3 +138,4 @@ tests check the fields that exist against known secrets, not the shape of every 
 - **2026-10-02**: A manifest's run carries its attempt.
 - **2026-10-02**: Sensitive question types are matched in every form of their key; the SignalR payload leaves answers out unless asked, and its queue drops steps first.
 - **2026-10-02**: Junction events have a RabbitMQ exchange of their own.
+- **2026-10-02**: An observer registered after `AddTrax` refuses the host while decisions are recorded.
