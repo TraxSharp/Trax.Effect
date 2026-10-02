@@ -75,12 +75,12 @@
       },
       "Trax.Core.Testing": {
         "type": "Direct",
-        "requested": "[1.8.0, )",
-        "resolved": "1.8.0",
-        "contentHash": "6afnjZ1yAVUu1GzatZCmyraSwyLJEW0XnGgSswJ+jve9QtSNLvkp9NZztdzI/JzppBh2x+ONsATIzPgFCIt7tA==",
+        "requested": "[1.9.0, )",
+        "resolved": "1.9.0",
+        "contentHash": "9oQzXv/yaRdctaFFN0IQiNl9f9lf3LFQducx2glFzdIa+HIDXZQTQvOBohLlQQitrI+48ft8Zh4KUTj8Yuu+lw==",
         "dependencies": {
           "Microsoft.CodeAnalysis.CSharp": "5.9.0",
-          "NUnit": "4.4.0"
+          "NUnit": "5.0.0"
         }
       },
       "LanguageExt.Core": {
@@ -325,7 +325,7 @@
         "dependencies": {
           "Microsoft.Extensions.Hosting.Abstractions": "[10.0.12, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.12, )",
-          "Trax.Core": "[1.8.0, )"
+          "Trax.Core": "[1.9.0, )"
         }
       },
       "trax.effect.broadcaster.rabbitmq": {
@@ -386,7 +386,7 @@
           "Microsoft.CodeAnalysis.CSharp": "[5.9.0, )",
           "NUnit": "[5.0.0, )",
           "Npgsql.EntityFrameworkCore.PostgreSQL": "[10.0.3, )",
-          "Trax.Core.Testing": "[1.8.0, )",
+          "Trax.Core.Testing": "[1.9.0, )",
           "Trax.Effect.Data": "[1.99.99, )"
         }
       },
@@ -629,13 +629,13 @@
       },
       "Trax.Core": {
         "type": "CentralTransitive",
-        "requested": "[1.8.0, )",
-        "resolved": "1.8.0",
-        "contentHash": "db0WwVDsb2cWP5ypIVOZCnoVtdmXiQn90Q9kDRmhgUdIOkh2kdpM2EqhVNWKeEsH+xtym/tG4Xs8UWuKg5ZLKg==",
+        "requested": "[1.9.0, )",
+        "resolved": "1.9.0",
+        "contentHash": "T116+22TxZpPncKhvNi0ujAWWHKGH3xPBMxcOqcBoAFviYj6NhonaEVE662qmuaU+JAnwpl+2zQYCMMcrMBkvQ==",
         "dependencies": {
           "LanguageExt.Core": "4.4.9",
-          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.3",
-          "Microsoft.Extensions.Logging.Abstractions": "10.0.3"
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.12",
+          "Microsoft.Extensions.Logging.Abstractions": "10.0.12"
         }
       }
     }
