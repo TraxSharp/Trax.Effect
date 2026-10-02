@@ -485,6 +485,52 @@ public class JunctionEventsTests
             .And.OnlyContain(e => e.Junction!.Attempt == null);
     }
 
+    [Test]
+    public async Task A_long_failure_streak_is_counted_over_a_bounded_number_of_runs()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Lane.Express, 0.9));
+        var manifestId = await SeedManifestRuns(
+            Enumerable.Repeat(TrainState.Failed, RunAttempts.MaxRunsRead + 5).ToArray()
+        );
+
+        var metadataId = await RunForManifest(_provider, manifestId);
+
+        Handler
+            .For(metadataId)
+            .Should()
+            .OnlyContain(
+                e => e.Junction!.Attempt == RunAttempts.MaxRunsRead + 1,
+                $"the attempt reads at most {RunAttempts.MaxRunsRead} runs. See {Adr}."
+            );
+    }
+
+    [Test]
+    public async Task A_run_does_not_wait_long_on_an_attempt_that_never_comes()
+    {
+        var handler = new CapturingHandler();
+        await using var provider = JunctionEventTrains
+            .Register(new ServiceCollection(), Decider)
+            .AddSingleton<IJunctionEventHandler>(handler)
+            .AddTrax(trax => trax.AddEffects(effects => effects.UseInMemory().AddJunctionEvents()))
+            .AddSingleton<IRunAttempts, HangingRunAttempts>()
+            .BuildServiceProvider();
+        provider.GetRequiredService<JunctionEventPublisher>().AttemptTimeout =
+            TimeSpan.FromMilliseconds(50);
+        Decider.Use(new ScriptedDecider().Choose(Lane.Express, 0.9));
+
+        var metadataId = await RunForManifest(provider, manifestId: 777)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        handler
+            .For(metadataId)
+            .Should()
+            .HaveCount(8)
+            .And.OnlyContain(
+                e => e.Junction!.Attempt == null,
+                $"an attempt that is not read in time is left out. See {Adr}."
+            );
+    }
+
     /// <summary>
     /// A manifest with one finished run per state given, oldest first. <see cref="TrainState.Pending"/>
     /// stands for a failed dispatch attempt the scheduler requeued.
@@ -632,6 +678,17 @@ internal sealed class CapturingBroadcaster : ITrainEventBroadcaster
         _seen.Enqueue(message);
         return Task.CompletedTask;
     }
+}
+
+/// <summary>Never answers, and ignores cancellation, as a stuck connection would.</summary>
+internal sealed class HangingRunAttempts : IRunAttempts
+{
+    private readonly TaskCompletionSource<int?> _never = new();
+
+    public Task<int?> AttemptOf(
+        Trax.Effect.Models.Metadata.Metadata metadata,
+        CancellationToken cancellationToken
+    ) => _never.Task;
 }
 
 internal sealed class BrokenRunAttempts : IRunAttempts

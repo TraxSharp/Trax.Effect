@@ -59,6 +59,7 @@ public class SqliteMigrationTests
         "ix_runner_nonce_expires_at",
         "ix_work_queue_replay_decisions_of",
         "ix_metadata_replay_decisions_of",
+        "ix_metadata_manifest_id_id",
     ];
 
     private static string CreateTempDbPath() =>

@@ -12,6 +12,11 @@ using Trax.Effect.Data.Services.IDataContextFactory;
 using Trax.Effect.Enums;
 using Trax.Effect.Extensions;
 using Trax.Effect.Models.JunctionRun;
+using Trax.Effect.Models.Manifest;
+using Trax.Effect.Models.Manifest.DTOs;
+using Trax.Effect.Models.ManifestGroup;
+using Trax.Effect.Models.Metadata;
+using Trax.Effect.Models.Metadata.DTOs;
 using Trax.Effect.Services.EffectJunction;
 using Trax.Effect.Services.FailureClassifier;
 using Trax.Effect.Services.ServiceTrain;
@@ -94,11 +99,58 @@ public class PostgresJunctionRunTests
         (await Rows(metadataId)).Should().BeEmpty($"the foreign key cascades. See {Adr}.");
     }
 
-    private async Task<long> Run()
+    [Test]
+    public async Task A_manifests_run_stores_its_attempt()
+    {
+        var factory = _provider.GetRequiredService<IDataContextProviderFactory>();
+        long manifestId;
+        using (var context = await factory.CreateDbContextAsync(CancellationToken.None))
+        {
+            var group = new ManifestGroup
+            {
+                Name = $"junction-runs-{Guid.NewGuid():N}",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+            };
+            await context.Track(group);
+            await context.SaveChanges(CancellationToken.None);
+
+            var manifest = Manifest.Create(new CreateManifest { Name = typeof(IPgStepsTrain) });
+            manifest.ManifestGroupId = group.Id;
+            await context.Track(manifest);
+            await context.SaveChanges(CancellationToken.None);
+            manifestId = manifest.Id;
+        }
+
+        var first = await Run(manifestId);
+        var second = await Run(manifestId);
+        var third = await Run(manifestId);
+
+        (await Rows(first)).Should().OnlyContain(r => r.Attempt == 1);
+        (await Rows(second)).Should().OnlyContain(r => r.Attempt == 2);
+        (await Rows(third))
+            .Should()
+            .OnlyContain(r => r.Attempt == 3, $"two failed runs came before it. See {Adr}.");
+
+        foreach (var id in new[] { first, second, third })
+            await Delete(id);
+    }
+
+    private async Task<long> Run(long? manifestId = null)
     {
         using var scope = _provider.CreateScope();
         var train = (PgStepsTrain)scope.ServiceProvider.GetRequiredService<IPgStepsTrain>();
-        var run = async () => await train.Run(new PgItem(3));
+        var input = new PgItem(3);
+        var metadata = Metadata.Create(
+            new CreateMetadata
+            {
+                Name = typeof(IPgStepsTrain).FullName!,
+                ExternalId = Guid.NewGuid().ToString("N"),
+                Input = input,
+                ManifestId = manifestId,
+            }
+        );
+        var run = async () => await train.Run(input, metadata);
         await run.Should().ThrowAsync<InvalidOperationException>();
 
         await _provider.GetRequiredService<JunctionRunWriter>().FlushAsync();

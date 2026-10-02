@@ -110,7 +110,9 @@ unrecorded.
 counts the manifest's failed runs since its last completed or cancelled one, skipping the dispatch
 attempts Trax.Scheduler requeued (`DispatchRequeued`), and the run's steps and rows carry 1 plus that.
 A run with no manifest carries none rather than 1, because it is no attempt of anything, and a query
-that fails leaves the attempt out and the run alone.
+that fails leaves the attempt out and the run alone. The query reads at most the manifest's 1000
+most recent runs through `ix_metadata_manifest_id_id`, so it does not grow with history, and a run
+waits on it for at most a second before carrying on without an attempt.
 
 **Publishing never fails a run.** A store, transport or handler failure is logged and swallowed.
 Local handlers run on the run's path and must return quickly.
@@ -139,3 +141,4 @@ tests check the fields that exist against known secrets, not the shape of every 
 - **2026-10-02**: Sensitive question types are matched in every form of their key; the SignalR payload leaves answers out unless asked, and its queue drops steps first.
 - **2026-10-02**: Junction events have a RabbitMQ exchange of their own.
 - **2026-10-02**: An observer registered after `AddTrax` refuses the host while decisions are recorded.
+- **2026-10-02**: The attempt query is indexed, reads a bounded number of runs, and is timed out.

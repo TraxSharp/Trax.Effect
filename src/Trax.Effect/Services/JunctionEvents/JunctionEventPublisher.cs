@@ -46,6 +46,12 @@ internal sealed class JunctionEventPublisher
     }
 
     /// <summary>
+    /// The longest a run waits, as it begins, for its attempt to be worked out. Past it the run
+    /// carries on and its events carry no attempt.
+    /// </summary>
+    internal TimeSpan AttemptTimeout { get; set; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>
     /// Begins the junction events of the run <paramref name="metadata"/> records, working out once
     /// which attempt of its manifest it is. Never throws: an attempt that cannot be worked out is
     /// logged and left out.
@@ -64,7 +70,17 @@ internal sealed class JunctionEventPublisher
             try
             {
                 if (_root.GetService<IRunAttempts>() is { } attempts)
-                    attempt = await attempts.AttemptOf(metadata, cancellationToken);
+                {
+                    // The run waits on this, so it is bounded: a busy pool or a slow database
+                    // costs the run at most AttemptTimeout, and its events carry no attempt.
+                    using var bound = CancellationTokenSource.CreateLinkedTokenSource(
+                        cancellationToken
+                    );
+                    bound.CancelAfter(AttemptTimeout);
+                    attempt = await attempts
+                        .AttemptOf(metadata, bound.Token)
+                        .WaitAsync(AttemptTimeout, cancellationToken);
+                }
             }
             catch (Exception e)
             {
