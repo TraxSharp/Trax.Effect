@@ -29,7 +29,7 @@ internal sealed class JunctionEventDecisionObserver : IDecisionObserver
             return;
 
         var key = decision.Question.Key;
-        var withheld = SensitiveQuestions.IsSensitive(key);
+        var withheld = SensitiveQuestions.IsSensitive(decision.QuestionType, key);
         var (answer, confidence) = withheld ? (null, null) : Summarise(decision.Answer);
         var now = DateTime.UtcNow;
 
@@ -79,7 +79,7 @@ internal sealed class JunctionEventDecisionObserver : IDecisionObserver
                 0,
                 QuestionKey: key,
                 Decider: refusal.Decider.FullName,
-                AnswerWithheld: SensitiveQuestions.IsSensitive(key)
+                AnswerWithheld: SensitiveQuestions.IsSensitive(refusal.QuestionType, key)
             )
         );
     }

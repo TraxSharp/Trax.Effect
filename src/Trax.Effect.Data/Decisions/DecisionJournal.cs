@@ -11,6 +11,7 @@ using Trax.Effect.Exceptions;
 using Trax.Effect.Models.Metadata;
 using Trax.Effect.Models.RecordedDecision;
 using Trax.Effect.Services.Decisions;
+using Trax.Effect.Services.JunctionEvents;
 
 namespace Trax.Effect.Data.Decisions;
 
@@ -81,7 +82,9 @@ public sealed class DecisionJournal(
             decision.Train,
             decision.RunId,
             decision.Question.Key,
-            Describe(decision.Answer),
+            SensitiveQuestions.IsSensitive(decision.QuestionType, decision.Question.Key)
+                ? Withheld
+                : Describe(decision.Answer),
             decision.Decider?.Name ?? "replay",
             decision.Replayed ? " (replayed)" : "",
             decision.Shadows.Count == 0
@@ -132,14 +135,18 @@ public sealed class DecisionJournal(
     /// </remarks>
     public async Task Refused(DecisionRefused refusal, CancellationToken cancellationToken)
     {
+        var sensitive = SensitiveQuestions.IsSensitive(refusal.QuestionType, refusal.Question.Key);
         _logger.LogWarning(
             "Train {Train} (run {RunId}) refused the answer to {Question}: {Answer} by {Decider}, because {Reason}",
             refusal.Train,
             refusal.RunId,
             refusal.Question.Key,
-            refusal.Answer is null ? "no answer" : Describe(refusal.Answer),
+            sensitive ? Withheld
+                : refusal.Answer is null ? "no answer"
+                : Describe(refusal.Answer),
             refusal.Decider.Name,
-            refusal.Reason
+            // The reason quotes the answer.
+            sensitive ? Withheld : refusal.Reason
         );
 
         if (
@@ -188,6 +195,12 @@ public sealed class DecisionJournal(
         );
     }
 
+    /// <summary>
+    /// What the log says in place of an answer to a question about a type marked
+    /// <c>[TraxSensitive]</c>. The row keeps the answer, because a requeue replays it from there.
+    /// </summary>
+    private const string Withheld = "(withheld: the question is marked [TraxSensitive])";
+
     /// <summary>The answer for the log, which must not fail on an answer that cannot be recorded.</summary>
     private static string Describe(Answer answer)
     {
@@ -226,9 +239,11 @@ public sealed class DecisionJournal(
             "Train {Train} (run {RunId}) took track {Track} on {On}{Fallback}",
             routing.Train,
             routing.RunId,
-            routing.Track,
+            SensitiveQuestions.IsSensitive(routing.On) ? Withheld : routing.Track,
             QuestionKey.For(routing.On),
-            routing.FallbackReason is null ? "" : $" because {routing.FallbackReason}"
+            routing.FallbackReason is null || SensitiveQuestions.IsSensitive(routing.On)
+                ? ""
+                : $" because {routing.FallbackReason}"
         );
 
         // The routing is added to the row of the latest decision it routes on.
@@ -482,7 +497,12 @@ public sealed class DecisionJournal(
             .OrderBy(d => nearestFirst[d.MetadataId])
             .GroupBy(d => (d.Key, d.Occurrence))
             .ToList();
-        var oldest = DateTime.UtcNow - Options.MaxReplayAge;
+        // A bound longer than the time since DateTime.MinValue means no bound at all.
+        var now = DateTime.UtcNow;
+        var oldest =
+            Options.MaxReplayAge >= now - DateTime.MinValue
+                ? DateTime.MinValue
+                : now - Options.MaxReplayAge;
 
         // The nearer run's answer wins: it is what that run acted on, whether it replayed it or
         // was answered afresh because the older one no longer fitted.

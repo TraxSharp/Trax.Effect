@@ -57,6 +57,13 @@ internal static class SensitiveQuestions
         return false;
     }
 
+    /// <summary>
+    /// Whether the answer to a question must be withheld, from the type it is about when Trax.Core
+    /// reported one, and from its key either way, so a type the scan never saw still fails closed.
+    /// </summary>
+    public static bool IsSensitive(Type? type, string key) =>
+        type is not null ? IsSensitive(type) || IsSensitive(key) : IsSensitive(key);
+
     /// <summary>Whether the answer to a question about <paramref name="type"/> must be withheld.</summary>
     public static bool IsSensitive(Type type) =>
         IsMarked(type) || IsSensitive(QuestionKey.For(type));

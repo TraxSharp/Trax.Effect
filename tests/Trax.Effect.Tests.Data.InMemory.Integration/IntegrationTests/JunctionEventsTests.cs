@@ -1,13 +1,17 @@
 using System.Collections.Concurrent;
+using System.Reflection;
+using System.Reflection.Emit;
 using System.Text.Json;
 using FluentAssertions;
 using LanguageExt;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Trax.Core.Decisions;
 using Trax.Core.Exceptions;
 using Trax.Effect.Attributes;
+using Trax.Effect.Data.Decisions;
 using Trax.Effect.Data.Extensions;
 using Trax.Effect.Data.InMemory.Extensions;
 using Trax.Effect.Data.JunctionEvents;
@@ -283,6 +287,131 @@ public class JunctionEventsTests
                     && s.Answer == null
                     && s.Confidence == null,
                 $"a question about a marked type has its answer and track withheld. See {Adr}."
+            );
+    }
+
+    [Test]
+    public async Task A_run_that_was_never_persisted_has_no_junction_events()
+    {
+        var publisher = _provider.GetRequiredService<JunctionEventPublisher>();
+        var unsaved = Metadata.Create(
+            new CreateMetadata
+            {
+                Name = typeof(ILaneTrain).FullName!,
+                ExternalId = Guid.NewGuid().ToString("N"),
+                Input = JunctionEventTrains.Parcel(),
+            }
+        );
+
+        var run = await publisher.BeginAsync(
+            unsaved,
+            typeof(LaneTrain),
+            _provider,
+            CancellationToken.None
+        );
+
+        run.Should().BeNull($"a run with no row publishes and records no steps. See {Adr}.");
+    }
+
+    [Test]
+    public async Task A_question_about_a_type_the_scan_never_saw_is_withheld_by_its_type()
+    {
+        // A subclass of a marked type, made where no assembly scan reaches it, so only the type
+        // Trax.Core reports can tell that it is sensitive.
+        var hidden = AssemblyBuilder
+            .DefineDynamicAssembly(
+                new AssemblyName($"Hidden{Guid.NewGuid():N}"),
+                AssemblyBuilderAccess.Run
+            )
+            .DefineDynamicModule("Hidden")
+            .DefineType(
+                "HiddenAudit",
+                TypeAttributes.Public | TypeAttributes.Class,
+                typeof(SensitiveQuestion)
+            )
+            .CreateType();
+        var run = await PersistedRun();
+        // Set here, in the test's own frame, as ServiceTrain.Run sets it in the run's.
+        JunctionEventRun.Current = run;
+        var metadataId = run.Metadata.Id;
+        var observer = new JunctionEventDecisionObserver();
+
+        await observer.Decided(
+            new DecisionMade(
+                DecisionRun.NameOf(typeof(LaneTrain)),
+                _externalId,
+                new YesNoQuestion("HiddenAudit", "Audit it?", null, null),
+                0,
+                new string('0', 64),
+                new YesNoAnswer(0.97),
+                typeof(SwitchableDecider),
+                false,
+                []
+            )
+            {
+                QuestionType = hidden,
+            },
+            CancellationToken.None
+        );
+        JunctionEventRun.Current = null;
+
+        var decided = Handler.For(metadataId).Should().ContainSingle().Subject.Junction!;
+        decided
+            .AnswerWithheld.Should()
+            .BeTrue($"the question's type inherits the mark. See {Adr}.");
+        decided.Answer.Should().BeNull();
+    }
+
+    private string _externalId = "";
+
+    /// <summary>The junction events of a persisted run of the lane train.</summary>
+    private async Task<JunctionEventRun> PersistedRun()
+    {
+        using var scope = _provider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<IDataContext>();
+        var metadata = Metadata.Create(
+            new CreateMetadata
+            {
+                Name = typeof(ILaneTrain).FullName!,
+                ExternalId = Guid.NewGuid().ToString("N"),
+                Input = JunctionEventTrains.Parcel(),
+            }
+        );
+        await context.Track(metadata);
+        await context.SaveChanges(CancellationToken.None);
+        _externalId = metadata.ExternalId;
+
+        return (
+            await _provider
+                .GetRequiredService<JunctionEventPublisher>()
+                .BeginAsync(metadata, typeof(LaneTrain), _provider, CancellationToken.None)
+        )!;
+    }
+
+    [Test]
+    public async Task The_decision_log_withholds_the_answer_to_a_sensitive_question()
+    {
+        var logger = new CapturingJournalLogger();
+        await using var provider = JunctionEventTrains
+            .Register(new ServiceCollection(), Decider)
+            .AddSingleton<ILogger<DecisionJournal>>(logger)
+            .AddTrax(trax =>
+                trax.AddEffects(effects => effects.UseInMemory().AddDecisionRecording())
+            )
+            .BuildServiceProvider();
+        Decider.Use(new ScriptedDecider().Choose(CustomsTier.Red, 0.99));
+
+        using var scope = provider.CreateScope();
+        await scope
+            .ServiceProvider.GetRequiredService<ICustomsTrain>()
+            .Run(JunctionEventTrains.Parcel());
+
+        logger.Messages.Should().Contain(m => m.Contains("withheld"));
+        logger
+            .Messages.Should()
+            .NotContain(
+                m => m.Contains("Red"),
+                $"a sensitive question's answer and track stay out of the log. See {Adr}."
             );
     }
 
@@ -697,6 +826,26 @@ internal sealed class BrokenRunAttempts : IRunAttempts
         Trax.Effect.Models.Metadata.Metadata metadata,
         CancellationToken cancellationToken
     ) => throw new InvalidOperationException("the database is down");
+}
+
+internal sealed class CapturingJournalLogger : ILogger<DecisionJournal>
+{
+    private readonly ConcurrentQueue<string> _messages = new();
+
+    public IReadOnlyList<string> Messages => _messages.ToList();
+
+    public IDisposable? BeginScope<TState>(TState state)
+        where TState : notnull => null;
+
+    public bool IsEnabled(LogLevel logLevel) => true;
+
+    public void Log<TState>(
+        LogLevel logLevel,
+        EventId eventId,
+        TState state,
+        Exception? exception,
+        Func<TState, Exception?, string> formatter
+    ) => _messages.Enqueue(formatter(state, exception));
 }
 
 internal sealed class ThrowingHandler : IJunctionEventHandler

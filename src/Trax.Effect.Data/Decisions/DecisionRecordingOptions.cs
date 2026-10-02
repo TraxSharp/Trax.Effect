@@ -20,7 +20,10 @@ public sealed class DecisionRecordingOptions
     /// later run that replayed it. An older one is asked afresh and the decision logged. Defaults to
     /// <see cref="DefaultMaxReplayAge"/>.
     /// </summary>
-    /// <param name="maxAge">At least one second.</param>
+    /// <param name="maxAge">
+    /// At least one second. <see cref="TimeSpan.MaxValue"/>, or any span longer than the calendar
+    /// goes back, replays answers of any age.
+    /// </param>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="maxAge"/> is under a second.</exception>
     public DecisionRecordingOptions ReplayAnswersFor(TimeSpan maxAge)
     {

@@ -2,6 +2,7 @@ using FluentAssertions;
 using LanguageExt;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Trax.Core.Decisions;
 using Trax.Core.Exceptions;
 using Trax.Core.Junction;
@@ -14,6 +15,7 @@ using Trax.Effect.Enums;
 using Trax.Effect.Extensions;
 using Trax.Effect.Models.Metadata;
 using Trax.Effect.Models.Metadata.DTOs;
+using Trax.Effect.Services.Decisions;
 using Trax.Effect.Services.EffectJunction;
 using Trax.Effect.Services.EffectProvider;
 using Trax.Effect.Services.ServiceTrain;
@@ -321,6 +323,89 @@ public class DecisionRecordingTests
             .Be(TimeSpan.FromHours(2));
         var act = () => options.ReplayAnswersFor(TimeSpan.Zero);
         act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Test]
+    public async Task A_replay_bound_longer_than_the_calendar_replays_answers_of_any_age()
+    {
+        await using var provider = DecisionTrains
+            .Register(new ServiceCollection(), Decider)
+            .AddTrax(trax =>
+                trax.AddEffects(effects =>
+                    effects
+                        .UseInMemory()
+                        .AddDecisionRecording(o => o.ReplayAnswersFor(TimeSpan.MaxValue))
+                )
+            )
+            .BuildServiceProvider();
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+        var original = await RunOn(provider, new Order("o-forever", 20m), replayDecisionsOf: null);
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+
+        var output = await RunOn(
+            provider,
+            new Order("o-forever", 20m),
+            replayDecisionsOf: original
+        );
+
+        decider.Requests.Should().BeEmpty($"no bound means any age replays. See {Adr}.");
+    }
+
+    [Test]
+    public async Task An_observer_that_cannot_be_built_refuses_with_a_clear_reason()
+    {
+        var services = DecisionTrains.Register(new ServiceCollection(), Decider);
+        services.AddSingleton<IDecisionObserver>(_ =>
+            throw new InvalidOperationException("the audit sink is not configured")
+        );
+        await using var provider = services
+            .AddTrax(trax =>
+                trax.AddEffects(effects => effects.UseInMemory().AddDecisionRecording())
+            )
+            .BuildServiceProvider();
+        var gate = provider.GetServices<IHostedService>().OfType<DecisionObserverCheck>().Single();
+
+        for (var i = 0; i < 2; i++)
+        {
+            var start = () => gate.StartingAsync(CancellationToken.None);
+            await start
+                .Should()
+                .ThrowAsync<InvalidOperationException>()
+                .WithMessage("*could not be built*the audit sink is not configured*");
+        }
+
+        using var scope = provider.CreateScope();
+        var train =
+            (ServiceTrain<Order, string>)
+                (object)scope.ServiceProvider.GetRequiredService<IRouteOrder>();
+        var run = async () => await train.Run(new Order("o-unbuilt", 20m));
+        await run.Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage("*could not be built*");
+        train.Metadata!.FailureClass.Should().Be(FailureClass.Permanent, $"See {Adr}.");
+    }
+
+    private static async Task<long> RunOn(
+        IServiceProvider provider,
+        Order order,
+        long? replayDecisionsOf
+    )
+    {
+        using var scope = provider.CreateScope();
+        var train =
+            (ServiceTrain<Order, string>)
+                (object)scope.ServiceProvider.GetRequiredService<IRouteOrder>();
+        var metadata = Metadata.Create(
+            new CreateMetadata
+            {
+                Name = typeof(IRouteOrder).FullName!,
+                ExternalId = Guid.NewGuid().ToString("N"),
+                Input = order,
+                ReplayDecisionsOf = replayDecisionsOf,
+            }
+        );
+        await train.Run(order, metadata);
+        return train.Metadata!.Id;
     }
 
     [Test]

@@ -53,19 +53,25 @@ internal sealed class JunctionEventPublisher
 
     /// <summary>
     /// Begins the junction events of the run <paramref name="metadata"/> records, working out once
-    /// which attempt of its manifest it is. Never throws: an attempt that cannot be worked out is
+    /// which attempt of its manifest it is. Null for a run that was never persisted, which has no
+    /// junction events. Never throws: an attempt that cannot be worked out is
     /// logged and left out.
     /// </summary>
-    public async Task<JunctionEventRun> BeginAsync(
+    public async Task<JunctionEventRun?> BeginAsync(
         Metadata metadata,
         Type train,
         IServiceProvider services,
         CancellationToken cancellationToken
     )
     {
+        // A run that was never persisted has no row its steps could be read back or told apart by,
+        // so it publishes and records none.
+        if (metadata.Id <= 0)
+            return null;
+
         int? attempt = null;
 
-        if (metadata.ManifestId is not null && metadata.Id > 0)
+        if (metadata.ManifestId is not null)
         {
             try
             {
@@ -103,23 +109,19 @@ internal sealed class JunctionEventPublisher
         step = step with { Attempt = run.Attempt };
         var metadata = run.Metadata;
 
-        // A run that was never persisted has no row to write against.
-        if (metadata.Id > 0)
+        try
         {
-            try
-            {
-                _sink.Value?.Write(metadata.Id, step);
-            }
-            catch (Exception e)
-            {
-                _logger?.LogWarning(
-                    e,
-                    "Could not store step {Position} ({Name}) of run {ExternalId}; the run carries on.",
-                    step.Position,
-                    step.Name,
-                    run.ExternalId
-                );
-            }
+            _sink.Value?.Write(metadata.Id, step);
+        }
+        catch (Exception e)
+        {
+            _logger?.LogWarning(
+                e,
+                "Could not store step {Position} ({Name}) of run {ExternalId}; the run carries on.",
+                step.Position,
+                step.Name,
+                run.ExternalId
+            );
         }
 
         var message = new TrainLifecycleEventMessage(

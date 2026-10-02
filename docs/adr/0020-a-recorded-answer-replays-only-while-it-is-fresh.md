@@ -10,7 +10,8 @@ status: accepted
 question was asked about (`state_hash`, from `DecisionMade.StateHash`), and hands it back with the
 answer so Trax.Core replays it only into a state that hashes the same (`core/0004`). It also
 replays an answer only while it is younger than `ReplayAnswersFor`, 24 hours by default, measured
-from when a decider gave it. An answer outside either is asked afresh.
+from when a decider gave it. An answer outside either is asked afresh. `TimeSpan.MaxValue`
+(or any span longer than the calendar goes back) means no bound.
 
 ## Status
 
@@ -57,4 +58,5 @@ same code for every provider and are exercised on the in-memory one.
 
 ## Changelog
 
+- **2026-10-02**: A bound longer than the calendar means no bound.
 - **2026-10-02**: Recorded.

@@ -16,6 +16,10 @@ namespace Trax.Effect.Services.Decisions;
 /// before any other hosted service starts, or in <see cref="StartAsync"/> for a harness that skips
 /// the lifecycle steps), and so does every run that would record its decisions
 /// (<see cref="ThrowIfReplaced"/>), so a host built without the generic host fails closed too.
+/// An observer that cannot be built refuses the same way, with what building it threw.
+/// <para>Decorating <see cref="IDecisionObserver"/> (Scrutor's <c>Decorate</c>, say) replaces the
+/// composite the same way and is refused; register the observer to add before <c>AddTrax</c>
+/// instead, and Trax tells it alongside its own.</para>
 /// </remarks>
 internal sealed class DecisionObserverCheck(IServiceProvider services) : IHostedLifecycleService
 {
@@ -31,6 +35,25 @@ internal sealed class DecisionObserverCheck(IServiceProvider services) : IHosted
     }
 
     private static string? Find(IServiceProvider services)
+    {
+        // What resolving throws is turned into the refusal, so the reason is the same on every
+        // run and the check never caches a raw exception.
+        try
+        {
+            return FindReplacement(services);
+        }
+        catch (Exception e)
+        {
+            return "The decision observers Trax composes could not be built ("
+                + e.GetType().Name
+                + ": "
+                + e.Message
+                + "), so a decision could not be recorded before the run acts on it. Fix the "
+                + "registration of the observer named there.";
+        }
+    }
+
+    private static string? FindReplacement(IServiceProvider services)
     {
         using var scope = services.CreateScope();
         var provider = scope.ServiceProvider;

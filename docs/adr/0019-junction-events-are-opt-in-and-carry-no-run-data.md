@@ -56,8 +56,11 @@ answer is new information that train events never carried, so `[TraxSensitive]` 
 marker type a routing step asks about withholds it, and the track taken with it, from both the
 event and the row (`0010` is extended to cover types for this purpose only). The mark is honoured
 wherever the question's key is built from a marked type: a closed form of a marked generic type, a
-type nested in one, a type that takes one as an argument, and a type that inherits the mark. It
-fails closed: a key that shares a name with a marked type is withheld too.
+type nested in one, a type that takes one as an argument, and a type that inherits the mark. When Trax.Core reports the type a question is about, that type decides,
+so a type no scan saw (one built at run time, or in an assembly that does not reference Trax.Effect)
+is still withheld when it inherits the mark; the key is checked as well. It fails closed: a key that
+shares a name with a marked type is withheld too. The decision journal's log withholds the same
+answers and tracks, though `trax.decision` keeps them, because a requeue replays from there.
 
 **What reaches a browser.** The SignalR sink sends every train's events to every connected client,
 so its junction payload carries a question's key and whether it was replayed, but not its answer
@@ -104,7 +107,8 @@ registers a composite that tells every observer registered before `AddTrax` and 
 recorded is not reported as made, then best-effort ones. An observer registered after `AddTrax` replaces the composite in the
 container; while a required observer such as decision recording is a part, the host refuses to
 start and every run that would record its decisions refuses too, so no decision is acted on
-unrecorded.
+unrecorded. An observer that cannot be built refuses the same way, with the reason, and decorating
+`IDecisionObserver` is refused like any replacement.
 
 **A manifest's run carries its attempt.** When the run begins, one query on a context of its own
 counts the manifest's failed runs since its last completed or cancelled one, skipping the dispatch
@@ -136,6 +140,7 @@ tests check the fields that exist against known secrets, not the shape of every 
 
 ## Changelog
 
+- **2026-10-02**: A run with no row has no steps; sensitivity is decided by the question's type; the journal's log withholds sensitive answers.
 - **2026-10-02**: The attempt query is indexed, reads a bounded number of runs, and is timed out.
 - **2026-10-02**: An observer registered after `AddTrax` refuses the host while decisions are recorded.
 - **2026-10-02**: Junction events have a RabbitMQ exchange of their own.

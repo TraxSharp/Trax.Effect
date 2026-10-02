@@ -184,7 +184,8 @@ public static class ServiceExtensions
     /// in <see cref="TrainLifecycleEventMessage.Junction"/>. It goes to the host's
     /// <see cref="IJunctionEventHandler"/>s on the run's path, and over the transport
     /// <c>UseBroadcaster</c> configured, when there is one, to the junction event handlers of other
-    /// hosts. It never reaches an <see cref="ITrainEventHandler"/>, and the SignalR sink sends it to
+    /// hosts; a custom <see cref="ITrainEventBroadcaster"/> is handed it in <c>PublishAsync</c>
+    /// like any other message. It never reaches an <see cref="ITrainEventHandler"/>, and the SignalR sink sends it to
     /// clients only when configured with <c>WithJunctionEvents()</c>.</para>
     ///
     /// <para><b>What is never published or stored:</b> a junction's input or output, the train's
@@ -204,6 +205,8 @@ public static class ServiceExtensions
     /// manifest's failed runs since its last completed or cancelled one, read once when the run
     /// begins. A run with no manifest carries none. A failure to read it is logged, and the run's
     /// events carry none.</para>
+    ///
+    /// <para>A run that was never persisted (no metadata row) publishes and records no steps.</para>
     ///
     /// <para><b>Retention.</b> A step's row is deleted with its run's metadata row, by the foreign
     /// key's cascade, so every existing delete of metadata removes it.</para>
