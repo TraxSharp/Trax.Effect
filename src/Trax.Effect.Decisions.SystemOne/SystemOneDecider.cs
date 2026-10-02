@@ -25,12 +25,15 @@ namespace Trax.Effect.Decisions.SystemOne;
 /// probabilities must name every level, from 0, or the answer is left out rather than shifted onto
 /// the wrong levels.</para>
 ///
-/// <para>A throttled, unavailable or slow model, or one that answers with something other than a
-/// System One response, is retried with a jittered, doubling wait, honouring <c>Retry-After</c> up
-/// to <see cref="SystemOneOptions.MaxRetryDelay"/>. When retries run out, or the model asks for a
-/// longer wait than that, the failure is classified transient; a request the model refuses (bad
-/// input, a bad key, a method or version it does not implement) or that cannot be sent at all is
-/// classified permanent and not retried. Cancelling the train cancels the request.</para>
+/// <para>A throttled, unavailable or slow model, a connection that is refused, reset or times out,
+/// or a model that answers with something other than a System One response, is retried with a
+/// jittered, doubling wait, honouring <c>Retry-After</c> up to
+/// <see cref="SystemOneOptions.MaxRetryDelay"/>. When retries run out, or the model asks for a
+/// longer wait than that, the failure is classified transient. A request the model refuses (bad
+/// input, a bad key, a method or version it does not implement, a redirect), one that cannot be
+/// sent at all, and an endpoint that cannot be reached as configured (its name does not resolve,
+/// or its TLS handshake fails) are classified permanent and not retried. Cancelling the train
+/// cancels the request.</para>
 /// </remarks>
 public sealed class SystemOneDecider : IDecider, IDisposable
 {
@@ -196,6 +199,16 @@ public sealed class SystemOneDecider : IDecider, IDisposable
             {
                 failure =
                     $"the model did not answer within {_options.AttemptTimeout.TotalSeconds:0.#}s";
+            }
+            catch (HttpRequestException e) when (CannotReach(e.HttpRequestError))
+            {
+                // A name that does not resolve or a certificate that is not trusted is a
+                // configuration to fix, not a blip to wait out.
+                throw Refused(
+                    request,
+                    $"the model's endpoint cannot be reached as configured: {e.Message}",
+                    FailureClass.Permanent
+                );
             }
             catch (HttpRequestException e)
             {
@@ -489,6 +502,18 @@ public sealed class SystemOneDecider : IDecider, IDisposable
 
         return confidence is { } c ? new ScoreAnswer(score, c, probabilities) : null;
     }
+
+    /// <summary>
+    /// A failure to connect that trying again will not cure: the endpoint's name does not
+    /// resolve, its TLS handshake fails (an untrusted or mismatched certificate), or a proxy
+    /// refuses the credentials. A refused or reset connection, or one that times out, may be a
+    /// server restarting, and is retried.
+    /// </summary>
+    private static bool CannotReach(HttpRequestError error) =>
+        error
+            is HttpRequestError.NameResolutionError
+                or HttpRequestError.SecureConnectionError
+                or HttpRequestError.UserAuthenticationError;
 
     /// <summary>
     /// Throttled, timed out or unavailable. A 501 or 505 says the server will never handle the

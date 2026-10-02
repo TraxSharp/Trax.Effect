@@ -206,6 +206,42 @@ public class SystemOneDeciderTests
         model.Requests.Should().ContainSingle();
     }
 
+    [TestCase(HttpRequestError.NameResolutionError)]
+    [TestCase(HttpRequestError.SecureConnectionError)]
+    public async Task Decide_AnEndpointThatCannotBeReachedAsConfigured_FailsPermanentlyWithoutRetrying(
+        HttpRequestError error
+    )
+    {
+        var model = new FakeModel(_ => throw new HttpRequestException(error, "cannot connect"));
+        using var decider = new SystemOneDecider(Options(), new HttpClient(model));
+
+        var decide = () => decider.Decide(Ticket, CancellationToken.None);
+
+        var failure = (await decide.Should().ThrowAsync<DecisionServiceException>()).Which;
+        failure.Message.Should().Contain("cannot be reached as configured");
+        ClassOf(failure).Should().Be(FailureClass.Permanent);
+        model.Requests.Should().ContainSingle();
+    }
+
+    [Test]
+    public async Task Decide_ARefusedConnection_IsRetriedThenFailsTransiently()
+    {
+        var model = new FakeModel(_ =>
+            throw new HttpRequestException(HttpRequestError.ConnectionError, "refused")
+        );
+        using var decider = new SystemOneDecider(
+            Options(o => o.MaxAttempts = 2),
+            new HttpClient(model)
+        );
+
+        var decide = () => decider.Decide(Ticket, CancellationToken.None);
+
+        var failure = (await decide.Should().ThrowAsync<DecisionServiceException>()).Which;
+        failure.Message.Should().Contain("could not be reached");
+        ClassOf(failure).Should().Be(FailureClass.Transient);
+        model.Requests.Should().HaveCount(2);
+    }
+
     [Test]
     public async Task Decide_ASlowAttempt_IsAbandonedAndRetried()
     {
