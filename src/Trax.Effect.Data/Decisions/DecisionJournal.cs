@@ -57,7 +57,7 @@ public sealed class DecisionJournal(
             decision.Train,
             decision.RunId,
             decision.Question.Key,
-            DecisionJson.Write(decision.Answer),
+            Describe(decision.Answer),
             decision.Decider?.Name ?? "replay",
             decision.Replayed ? " (replayed)" : "",
             decision.Shadows.Count == 0
@@ -69,21 +69,18 @@ public sealed class DecisionJournal(
         if (Bound(decision.RunId) is not { MetadataId: { } metadataId } run)
             return;
 
-        var record = new RecordedDecision
+        RecordedDecision record;
+
+        try
         {
-            MetadataId = metadataId,
-            QuestionKey = decision.Question.Key,
-            Occurrence = decision.Occurrence,
-            Fingerprint = decision.Fingerprint,
-            Kind = DecisionJson.Kind(decision.Question),
-            Question = DecisionJson.Write(decision.Question),
-            Answer = DecisionJson.Write(decision.Answer, decision.ReplayRefused),
-            Model = decision.Answer.Model,
-            Decider = decision.Decider?.FullName,
-            Replayed = decision.Replayed,
-            Shadows = DecisionJson.Write(decision.Shadows),
-            DecidedAt = DateTime.UtcNow,
-        };
+            record = Record(decision, metadataId);
+        }
+        catch (NotSupportedException e)
+        {
+            // An answer that cannot be written would be one a requeue could not replay, and it is
+            // the same on every retry.
+            throw DecisionRun.Classified(e, decision.Train, decision.RunId, FailureClass.Permanent);
+        }
 
         await Write(
             decision.Train,
@@ -98,6 +95,36 @@ public sealed class DecisionJournal(
 
         run.Latest[record.QuestionKey] = record.Id;
     }
+
+    /// <summary>The answer for the log, which must not fail on an answer that cannot be recorded.</summary>
+    private static string Describe(Answer answer)
+    {
+        try
+        {
+            return DecisionJson.Write(answer);
+        }
+        catch (NotSupportedException)
+        {
+            return answer.GetType().Name;
+        }
+    }
+
+    private static RecordedDecision Record(DecisionMade decision, long metadataId) =>
+        new()
+        {
+            MetadataId = metadataId,
+            QuestionKey = decision.Question.Key,
+            Occurrence = decision.Occurrence,
+            Fingerprint = decision.Fingerprint,
+            Kind = DecisionJson.Kind(decision.Question),
+            Question = DecisionJson.Write(decision.Question),
+            Answer = DecisionJson.Write(decision.Answer, decision.ReplayRefused),
+            Model = decision.Answer.Model,
+            Decider = decision.Decider?.FullName,
+            Replayed = decision.Replayed,
+            Shadows = DecisionJson.Write(decision.Shadows),
+            DecidedAt = DateTime.UtcNow,
+        };
 
     /// <inheritdoc />
     public async Task Routed(TrackRouted routing, CancellationToken cancellationToken)
@@ -232,7 +259,7 @@ public sealed class DecisionJournal(
                     fingerprint
                 );
             }
-            catch (Exception e) when (e is JsonException or InvalidOperationException)
+            catch (JsonException e)
             {
                 throw DecisionRun.Unreplayable(
                     metadata,

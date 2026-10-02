@@ -101,9 +101,23 @@ internal static class DecisionJson
 
     /// <summary>
     /// Reads a stored answer back, or throws <see cref="JsonException"/> when it cannot be: a replay
-    /// that cannot read what it recorded must not quietly ask again.
+    /// that cannot read what it recorded must not quietly ask again. However a stored answer is
+    /// damaged (not JSON, a field of the wrong kind, a number that is not one), the failure is a
+    /// <see cref="JsonException"/>, so the caller has one thing to catch.
     /// </summary>
     public static Answer ReadAnswer(string json)
+    {
+        try
+        {
+            return Read(json);
+        }
+        catch (Exception e) when (e is not JsonException)
+        {
+            throw new JsonException($"A recorded answer cannot be read: {e.Message}", e);
+        }
+    }
+
+    private static Answer Read(string json)
     {
         var node =
             JsonNode.Parse(json) as JsonObject
@@ -166,7 +180,12 @@ internal static class DecisionJson
                 ["type"] = "yes_no",
                 ["probability"] = Number(y.Probability),
             },
-            _ => new JsonObject { ["type"] = answer.GetType().Name },
+            // Written as a bare type name, it could never be read back, so a replay would find
+            // an answer it cannot honour. Refused here, where the decision is still being made.
+            _ => throw new NotSupportedException(
+                $"An answer of type '{answer.GetType().FullName}' cannot be recorded; only "
+                    + "ChoiceAnswer, ScoreAnswer and YesNoAnswer can."
+            ),
         };
 
         node["model"] = answer.Model;
@@ -188,11 +207,23 @@ internal static class DecisionJson
             ? JsonValue.Create(value)
             : JsonValue.Create(value.ToString(CultureInfo.InvariantCulture));
 
-    private static double ReadNumber(JsonNode? node) =>
-        node is JsonValue value && value.TryGetValue<string>(out var text)
-            ? double.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture)
-            : node?.GetValue<double>()
-                ?? throw new JsonException("A recorded answer has a number that is null.");
+    private static double ReadNumber(JsonNode? node)
+    {
+        if (node is JsonValue value && value.TryGetValue<string>(out var text))
+            return double.TryParse(
+                text,
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out var number
+            )
+                ? number
+                : throw new JsonException(
+                    $"A recorded answer has '{text}' where a number belongs."
+                );
+
+        return node?.GetValue<double>()
+            ?? throw new JsonException("A recorded answer has a number that is null.");
+    }
 
     private static JsonNode Required(JsonObject node, string name) =>
         node[name] ?? throw new JsonException($"A recorded answer has no '{name}'.");

@@ -280,6 +280,45 @@ public class DecisionRecordingTests
     }
 
     [Test]
+    public async Task A_shadow_answer_that_cannot_be_read_back_is_recorded_as_an_error()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+
+        var (train, output) = await Run<IRouteWithOddShadow>(new Order("o-odd", 20m));
+
+        output.Should().Be("shipped");
+        var decision = (await Recorded(train.Metadata!.Id)).Should().ContainSingle().Subject;
+        decision.Shadows.Should().Contain(typeof(OddShadow).FullName);
+        decision.Shadows.Should().Contain("its answer could not be recorded");
+        decision.Shadows.Should().NotContain("\"type\":\"OddAnswer\"");
+    }
+
+    [Test]
+    public async Task A_recorded_answer_with_a_damaged_number_fails_the_replay_as_permanent()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+        var (original, _) = await Run<IRouteOrder>(new Order("o-damaged", 20m));
+
+        await Rewrite(
+            original.Metadata!.Id,
+            d => d.Answer = """{"type":"choice","choice":"ManualCheck","confidence":"lots"}"""
+        );
+
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+        var (train, run) = Start<IRouteOrder>(
+            new Order("o-damaged", 20m),
+            replayDecisionsOf: original.Metadata.Id
+        );
+
+        (await run.Should().ThrowAsync<TrainException>())
+            .Which.Message.Should()
+            .Contain("cannot be read")
+            .And.Contain("'lots'");
+        decider.Requests.Should().BeEmpty();
+        train.Metadata!.FailureClass.Should().Be(FailureClass.Permanent);
+    }
+
+    [Test]
     public async Task Runs_sharing_an_external_id_each_record_and_replay_their_own()
     {
         // A retried dispatch can leave two rows under one external id, both running at once.
@@ -513,6 +552,8 @@ internal static class DecisionTrains
             .AddScopedTraxRoute<IRouteThenPeek, RouteThenPeek>()
             .AddScopedTraxRoute<IRouteTwice, RouteTwice>()
             .AddScopedTraxRoute<IRouteWithShadow, RouteWithShadow>()
+            .AddSingleton<OddShadow>()
+            .AddScopedTraxRoute<IRouteWithOddShadow, RouteWithOddShadow>()
             .AddScopedTraxRoute<IMeetThenRoute, MeetThenRoute>();
 }
 
@@ -570,6 +611,34 @@ public sealed class NonFiniteShadow : IDecider
                 }
             )
         );
+}
+
+/// <summary>An answer of a kind Trax.Core does not define.</summary>
+public sealed record OddAnswer : Answer;
+
+/// <summary>A shadow that answers with a kind of answer the journal has no stored form for.</summary>
+public sealed class OddShadow : IDecider
+{
+    public Task<DecisionResult> Decide(DecisionRequest request, CancellationToken ct) =>
+        Task.FromResult(
+            new DecisionResult(
+                new Dictionary<string, Answer> { [QuestionKey.For<Fulfilment>()] = new OddAnswer() }
+            )
+        );
+}
+
+public interface IRouteWithOddShadow : IServiceTrain<Order, string>;
+
+public class RouteWithOddShadow : ServiceTrain<Order, string>, IRouteWithOddShadow
+{
+    protected override Task<Either<Exception, string>> Junctions() =>
+        Switch<Order, Fulfilment>(tracks =>
+                tracks
+                    .When(Fulfilment.Standard, t => t.Chain<Ship>())
+                    .When(Fulfilment.ManualCheck, t => t.Chain<HoldForReview>())
+                    .Shadow<OddShadow>()
+            )
+            .Resolve();
 }
 
 public sealed record Order(string Id, decimal Total);
