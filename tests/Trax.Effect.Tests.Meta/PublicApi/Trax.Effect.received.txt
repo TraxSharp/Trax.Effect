@@ -585,6 +585,7 @@ namespace Trax.Effect.Models.Manifest.DTOs
         public string? Owner { get; set; }
         public int Priority { get; set; }
         public Trax.Effect.Models.Manifest.IManifestProperties? Properties { get; set; }
+        public bool ReplayDecisionsOnRetry { get; set; }
         public Trax.Effect.Enums.ScheduleType ScheduleType { get; set; }
         public System.DateTime? ScheduledAt { get; set; }
         public int? TimeoutSeconds { get; set; }
@@ -673,6 +674,8 @@ namespace Trax.Effect.Models.Manifest
         public System.Type PropertyType { get; }
         [System.ComponentModel.DataAnnotations.Schema.Column("property_type")]
         public string? PropertyTypeName { get; set; }
+        [System.ComponentModel.DataAnnotations.Schema.Column("replay_decisions_on_retry")]
+        public bool ReplayDecisionsOnRetry { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("schedule_type")]
         public Trax.Effect.Enums.ScheduleType ScheduleType { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("scheduled_at")]

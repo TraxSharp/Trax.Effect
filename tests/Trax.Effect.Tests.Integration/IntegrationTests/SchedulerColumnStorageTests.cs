@@ -42,6 +42,65 @@ public class SchedulerColumnStorageTests : TestSetup
     }
 
     [Test]
+    public async Task A_manifests_replay_decisions_on_retry_is_stored()
+    {
+        long off,
+            on;
+        using (var context = (IDataContext)DataContextFactory.Create())
+        {
+            off = (
+                await SaveManifest(
+                    context,
+                    new CreateManifest
+                    {
+                        Name = typeof(SchedulerColumnStorageTests),
+                        ReplayDecisionsOnRetry = false,
+                    }
+                )
+            ).Id;
+            on = (
+                await SaveManifest(
+                    context,
+                    new CreateManifest { Name = typeof(SchedulerColumnStorageTests) }
+                )
+            ).Id;
+        }
+
+        using var readBack = (IDataContext)DataContextFactory.Create();
+        (await readBack.Manifests.AsNoTracking().SingleAsync(m => m.Id == off))
+            .ReplayDecisionsOnRetry.Should()
+            .BeFalse();
+        (await readBack.Manifests.AsNoTracking().SingleAsync(m => m.Id == on))
+            .ReplayDecisionsOnRetry.Should()
+            .BeTrue("a manifest replays its failed run's decisions unless told not to");
+    }
+
+    [Test]
+    public async Task A_manifest_row_written_without_the_column_replays_decisions_on_retry()
+    {
+        using var context = (IDataContext)DataContextFactory.Create();
+        var manifest = await SaveManifest(
+            context,
+            new CreateManifest
+            {
+                Name = typeof(SchedulerColumnStorageTests),
+                ReplayDecisionsOnRetry = false,
+            }
+        );
+
+        // What a row that existed before the column was added holds: the column's default.
+        await ((DbContext)context).Database.ExecuteSqlRawAsync(
+            "UPDATE trax.manifest SET replay_decisions_on_retry = DEFAULT WHERE id = {0}",
+            manifest.Id
+        );
+
+        using var readBack = (IDataContext)DataContextFactory.Create();
+        (await readBack.Manifests.AsNoTracking().SingleAsync(m => m.Id == manifest.Id))
+            .ReplayDecisionsOnRetry.Should()
+            .BeTrue("existing manifests keep replaying decisions on retry");
+    }
+
+    [Test]
     public async Task The_database_refuses_a_failure_window_of_zero()
     {
         using var context = (IDataContext)DataContextFactory.Create();
