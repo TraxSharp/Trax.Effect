@@ -264,6 +264,7 @@ internal sealed class JunctionRunWriter
         row.Confidence = step.AnswerWithheld ? null : step.Confidence;
         row.Replayed = step.Replayed;
         row.AnswerWithheld = step.AnswerWithheld;
+        row.Attempt = step.Attempt;
     }
 
     /// <inheritdoc />

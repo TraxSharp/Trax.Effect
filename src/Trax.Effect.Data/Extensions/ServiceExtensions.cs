@@ -166,6 +166,16 @@ public static class ServiceExtensions
     /// transports queue rather than wait too. Local handlers run on the run's path and must return
     /// quickly. A junction skipped because an earlier one failed is not a step.</para>
     ///
+    /// <para><b>Attempt.</b> A run of a manifest carries which attempt it is: 1 plus the
+    /// manifest's failed runs since its last completed or cancelled one, read once when the run
+    /// begins. A run with no manifest carries none. A failure to read it is logged, and the run's
+    /// events carry none.</para>
+    ///
+    /// <para><b>Attempt.</b> A run of a manifest carries which attempt it is: 1 plus the
+    /// manifest's failed runs since its last completed or cancelled one, read once when the run
+    /// begins. A run with no manifest carries none. A failure to read it is logged, and the run's
+    /// events carry none.</para>
+    ///
     /// <para><b>Retention.</b> A step's row is deleted with its run's metadata row, by the foreign
     /// key's cascade, so every existing delete of metadata removes it.</para>
     ///
@@ -184,6 +194,8 @@ public static class ServiceExtensions
         services.AddSingleton<JunctionEventPublisher>();
         services.AddSingleton<JunctionRunWriter>();
         services.AddSingleton<IJunctionRunSink>(sp => sp.GetRequiredService<JunctionRunWriter>());
+        services.AddSingleton<IRunAttempts, RunAttempts>();
+        services.AddSingleton<IRunAttempts, RunAttempts>();
         // Stopping the host drains the steps still queued for the database.
         services.AddHostedService(sp => sp.GetRequiredService<JunctionRunWriter>());
 

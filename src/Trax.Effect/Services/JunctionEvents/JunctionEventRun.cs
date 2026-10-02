@@ -24,9 +24,11 @@ internal sealed class JunctionEventRun
         JunctionEventPublisher publisher,
         Metadata metadata,
         Type train,
-        IServiceProvider services
+        IServiceProvider services,
+        int? attempt = null
     )
     {
+        Attempt = attempt;
         _publisher = publisher;
         Metadata = metadata;
         ExternalId = metadata.ExternalId;
@@ -62,6 +64,12 @@ internal sealed class JunctionEventRun
 
     /// <summary>The train as Trax.Core names it in its decisions.</summary>
     public string DecisionTrain { get; }
+
+    /// <summary>
+    /// Which attempt of its manifest the run is, worked out once when it began, or null for a run
+    /// with no manifest or when it could not be worked out.
+    /// </summary>
+    public int? Attempt { get; }
 
     /// <summary>The run's scope, which local junction event handlers are resolved from.</summary>
     public IServiceProvider Services { get; }

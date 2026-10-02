@@ -55,7 +55,10 @@ namespace Trax.Effect.Services.TrainEventBroadcaster;
 /// and track are left out.
 /// </param>
 /// <param name="Attempt">
-/// Which attempt of a manifest's run this is. Not yet filled in: always null.
+/// Which attempt of its manifest the run is: 1 plus the number of the manifest's failed runs since
+/// its last completed or cancelled run (a dispatch attempt the scheduler requeued does not count),
+/// worked out once when the run begins. Null for a run with no manifest, and when it could not be
+/// worked out.
 /// </param>
 public sealed record JunctionEventPayload(
     [property: JsonPropertyName("position")] int Position,

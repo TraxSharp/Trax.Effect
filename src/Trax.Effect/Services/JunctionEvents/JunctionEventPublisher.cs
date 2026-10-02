@@ -45,13 +45,46 @@ internal sealed class JunctionEventPublisher
         );
     }
 
-    /// <summary>Begins the junction events of the run <paramref name="metadata"/> records.</summary>
-    public JunctionEventRun Begin(Metadata metadata, Type train, IServiceProvider services) =>
-        new(this, metadata, train, services);
+    /// <summary>
+    /// Begins the junction events of the run <paramref name="metadata"/> records, working out once
+    /// which attempt of its manifest it is. Never throws: an attempt that cannot be worked out is
+    /// logged and left out.
+    /// </summary>
+    public async Task<JunctionEventRun> BeginAsync(
+        Metadata metadata,
+        Type train,
+        IServiceProvider services,
+        CancellationToken cancellationToken
+    )
+    {
+        int? attempt = null;
+
+        if (metadata.ManifestId is not null && metadata.Id > 0)
+        {
+            try
+            {
+                if (_root.GetService<IRunAttempts>() is { } attempts)
+                    attempt = await attempts.AttemptOf(metadata, cancellationToken);
+            }
+            catch (Exception e)
+            {
+                _logger?.LogWarning(
+                    e,
+                    "Could not work out which attempt of manifest {ManifestId} run {ExternalId} is; "
+                        + "its junction events carry no attempt, and the run carries on.",
+                    metadata.ManifestId,
+                    metadata.ExternalId
+                );
+            }
+        }
+
+        return new(this, metadata, train, services, attempt);
+    }
 
     /// <summary>Stores, broadcasts and hands out one step. Never throws.</summary>
     public async Task Publish(JunctionEventRun run, string eventType, JunctionEventPayload step)
     {
+        step = step with { Attempt = run.Attempt };
         var metadata = run.Metadata;
 
         // A run that was never persisted has no row to write against.

@@ -410,7 +410,12 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
             // (AddJunctionEvents): its junctions and decisions report against this run only.
             JunctionEventRun.Current = ServiceProvider.GetService(typeof(JunctionEventPublisher))
                 is JunctionEventPublisher junctionEvents
-                ? junctionEvents.Begin(Metadata, GetType(), ServiceProvider)
+                ? await junctionEvents.BeginAsync(
+                    Metadata,
+                    GetType(),
+                    ServiceProvider,
+                    CancellationToken
+                )
                 : null;
 
             Logger?.LogTrace("Running Train: ({TrainName})", TrainName);

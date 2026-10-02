@@ -83,6 +83,12 @@ registers a composite that tells every observer registered before `AddTrax` and 
 (decision recording, junction events): required ones first, so a decision that could not be
 recorded is not reported as made, then best-effort ones.
 
+**A manifest's run carries its attempt.** When the run begins, one query on a context of its own
+counts the manifest's failed runs since its last completed or cancelled one, skipping the dispatch
+attempts Trax.Scheduler requeued (`DispatchRequeued`), and the run's steps and rows carry 1 plus that.
+A run with no manifest carries none rather than 1, because it is no attempt of anything, and a query
+that fails leaves the attempt out and the run alone.
+
 **Publishing never fails a run.** A store, transport or handler failure is logged and swallowed.
 Local handlers run on the run's path and must return quickly.
 
@@ -103,3 +109,4 @@ tests check the fields that exist against known secrets, not the shape of every 
 ## Changelog
 
 - **2026-10-02**: Recorded.
+- **2026-10-02**: A manifest's run carries its attempt.

@@ -14,8 +14,13 @@ using Trax.Effect.Data.Services.DataContext;
 using Trax.Effect.Enums;
 using Trax.Effect.Extensions;
 using Trax.Effect.Models.JunctionRun;
+using Trax.Effect.Models.Manifest;
+using Trax.Effect.Models.Manifest.DTOs;
+using Trax.Effect.Models.Metadata;
+using Trax.Effect.Models.Metadata.DTOs;
 using Trax.Effect.Services.EffectJunction;
 using Trax.Effect.Services.FailureClassifier;
+using Trax.Effect.Services.JunctionEvents;
 using Trax.Effect.Services.ServiceTrain;
 using Trax.Effect.Services.TrainEventBroadcaster;
 
@@ -65,6 +70,12 @@ public class JunctionEventsTests
 
         output.Should().Be("loaded|stamped");
         var events = Handler.For(metadataId);
+        events
+            .Should()
+            .OnlyContain(
+                e => e.Junction!.Attempt == null,
+                $"a run with no manifest is no attempt of anything. See {Adr}."
+            );
         events
             .Select(e => (e.EventType, e.Junction!.Position, e.Junction.Name))
             .Should()
@@ -329,6 +340,124 @@ public class JunctionEventsTests
             .NotContain(e => e.EventType == "Decided" || e.EventType == "Routed");
     }
 
+    [Test]
+    public async Task A_manifests_run_carries_its_attempt_counted_from_its_last_success()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Lane.Express, 0.9));
+        var manifestId = await SeedManifestRuns(
+            TrainState.Completed,
+            TrainState.Failed,
+            TrainState.Failed,
+            // A dispatch attempt the scheduler requeued is not a run of the job.
+            TrainState.Pending
+        );
+
+        var metadataId = await RunForManifest(_provider, manifestId);
+
+        Handler
+            .For(metadataId)
+            .Should()
+            .NotBeEmpty()
+            .And.OnlyContain(
+                e => e.Junction!.Attempt == 3,
+                $"two failed runs since the last success make this the third attempt. See {Adr}."
+            );
+        (await Rows(metadataId)).Should().OnlyContain(r => r.Attempt == 3);
+    }
+
+    [Test]
+    public async Task A_run_whose_attempt_cannot_be_read_still_runs_and_carries_none()
+    {
+        var handler = new CapturingHandler();
+        await using var provider = JunctionEventTrains
+            .Register(new ServiceCollection(), Decider)
+            .AddSingleton<IJunctionEventHandler>(handler)
+            .AddTrax(trax => trax.AddEffects(effects => effects.UseInMemory().AddJunctionEvents()))
+            .AddSingleton<IRunAttempts, BrokenRunAttempts>()
+            .BuildServiceProvider();
+        Decider.Use(new ScriptedDecider().Choose(Lane.Express, 0.9));
+
+        var metadataId = await RunForManifest(provider, manifestId: 424242);
+
+        handler
+            .For(metadataId)
+            .Should()
+            .HaveCount(8, "the run went through every step")
+            .And.OnlyContain(e => e.Junction!.Attempt == null);
+    }
+
+    /// <summary>
+    /// A manifest with one finished run per state given, oldest first. <see cref="TrainState.Pending"/>
+    /// stands for a failed dispatch attempt the scheduler requeued.
+    /// </summary>
+    private async Task<long> SeedManifestRuns(params TrainState[] runs)
+    {
+        using var scope = _provider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<IDataContext>();
+        var manifest = Manifest.Create(new CreateManifest { Name = typeof(ILaneTrain) });
+        await context.Track(manifest);
+        await context.SaveChanges(CancellationToken.None);
+
+        foreach (var state in runs)
+        {
+            var run = Metadata.Create(
+                new CreateMetadata
+                {
+                    Name = typeof(ILaneTrain).FullName!,
+                    ExternalId = Guid.NewGuid().ToString("N"),
+                    Input = JunctionEventTrains.Parcel(),
+                    ManifestId = manifest.Id,
+                }
+            );
+
+            if (state == TrainState.Pending)
+            {
+                run.TrainState = TrainState.Failed;
+                var requeued = new InvalidOperationException("dispatch failed");
+                requeued.Data["TrainExceptionData"] = new TrainExceptionData
+                {
+                    TrainName = run.Name,
+                    TrainExternalId = run.ExternalId,
+                    Type = "DispatchRequeued",
+                    Junction = "Dispatch",
+                    Message = "dispatch failed",
+                };
+                run.AddException(requeued);
+            }
+            else
+            {
+                run.TrainState = state;
+                if (state == TrainState.Failed)
+                    run.AddException(new InvalidOperationException("failed"));
+            }
+
+            await context.Track(run);
+            await context.SaveChanges(CancellationToken.None);
+        }
+
+        return manifest.Id;
+    }
+
+    private static async Task<long> RunForManifest(IServiceProvider provider, long manifestId)
+    {
+        using var scope = provider.CreateScope();
+        var train = (LaneTrain)scope.ServiceProvider.GetRequiredService<ILaneTrain>();
+        var input = JunctionEventTrains.Parcel();
+        var metadata = Metadata.Create(
+            new CreateMetadata
+            {
+                Name = typeof(ILaneTrain).FullName!,
+                ExternalId = Guid.NewGuid().ToString("N"),
+                Input = input,
+                ManifestId = manifestId,
+            }
+        );
+
+        (await train.Run(input, metadata)).Should().Be("loaded|stamped");
+        await provider.GetRequiredService<JunctionRunWriter>().FlushAsync();
+        return train.Metadata!.Id;
+    }
+
     private async Task<(long MetadataId, string? Output)> Run<TTrain>(bool expectFailure = false)
         where TTrain : class, IServiceTrain<Parcel, string>
     {
@@ -402,6 +531,14 @@ internal sealed class CapturingBroadcaster : ITrainEventBroadcaster
         _seen.Enqueue(message);
         return Task.CompletedTask;
     }
+}
+
+internal sealed class BrokenRunAttempts : IRunAttempts
+{
+    public Task<int?> AttemptOf(
+        Trax.Effect.Models.Metadata.Metadata metadata,
+        CancellationToken cancellationToken
+    ) => throw new InvalidOperationException("the database is down");
 }
 
 internal sealed class ThrowingHandler : IJunctionEventHandler

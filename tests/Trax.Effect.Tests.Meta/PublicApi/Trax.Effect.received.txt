@@ -491,6 +491,8 @@ namespace Trax.Effect.Models.JunctionRun
         public string? Answer { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("answer_withheld")]
         public bool AnswerWithheld { get; set; }
+        [System.ComponentModel.DataAnnotations.Schema.Column("attempt")]
+        public int? Attempt { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("confidence")]
         public double? Confidence { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("ended_at")]

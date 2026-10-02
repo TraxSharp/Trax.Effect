@@ -21,7 +21,7 @@ namespace Trax.Effect.Models.JunctionRun;
 /// marked <c>[TraxSensitive]</c> is not stored at all (<see cref="AnswerWithheld"/>).</para>
 ///
 /// EF Core mapping lives in <c>Trax.Effect.Data.Models.JunctionRun.PersistentJunctionRun</c>; the
-/// table ships in the core migration set (Postgres <c>055</c>, Sqlite <c>020</c>) and is deleted
+/// table ships in the core migration set (Postgres <c>055</c> and <c>057</c>, Sqlite <c>020</c> and <c>022</c>) and is deleted
 /// with its run.
 /// </remarks>
 public class JunctionRun
@@ -105,6 +105,13 @@ public class JunctionRun
     /// <summary>True when the answer came from an earlier run rather than a decider.</summary>
     [Column("replayed")]
     public bool Replayed { get; set; }
+
+    /// <summary>
+    /// Which attempt of its manifest the run is, as junction events carry it; null for a run with
+    /// no manifest, and when it could not be worked out.
+    /// </summary>
+    [Column("attempt")]
+    public int? Attempt { get; set; }
 
     /// <summary>
     /// True when the question is about a type marked <c>[TraxSensitive]</c>, so its answer,
