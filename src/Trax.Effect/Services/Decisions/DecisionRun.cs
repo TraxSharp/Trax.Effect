@@ -31,14 +31,35 @@ internal interface IDecisionRunRecorder
 /// in the journal, which is a singleton. Two runs that share an external id, as a retried
 /// dispatch's rows can, each see their own, and nothing outlives the run whichever way it ends.
 /// </remarks>
-internal sealed class DecisionRun(
-    string runId,
-    Type train,
-    long? metadataId,
-    IReadOnlyDictionary<(string Key, int Occurrence), RecordedAnswer> replay
-)
+internal sealed class DecisionRun
 {
     private static readonly AsyncLocal<DecisionRun?> CurrentRun = new();
+
+    /// <summary>The run <c>ServiceTrain.Run</c> begins, for <paramref name="train"/>'s own type.</summary>
+    public DecisionRun(
+        string runId,
+        Type train,
+        long? metadataId,
+        IReadOnlyDictionary<(string Key, int Occurrence), RecordedAnswer> replay
+    )
+        : this(runId, NameOf(train), metadataId, replay) { }
+
+    /// <summary>
+    /// A run found by its row rather than on the async flow, for a train already named as Trax.Core
+    /// names it.
+    /// </summary>
+    public DecisionRun(
+        string runId,
+        string train,
+        long? metadataId,
+        IReadOnlyDictionary<(string Key, int Occurrence), RecordedAnswer> replay
+    )
+    {
+        RunId = runId;
+        Train = train;
+        MetadataId = metadataId;
+        Replay = replay;
+    }
 
     /// <summary>The run on this async flow, or null outside a service train's run.</summary>
     public static DecisionRun? Current
@@ -48,20 +69,19 @@ internal sealed class DecisionRun(
     }
 
     /// <summary>The run's external id, which Trax.Core reports its decisions under.</summary>
-    public string RunId { get; } = runId;
+    public string RunId { get; }
 
     /// <summary>The train as Trax.Core names it in <c>DecisionMade.Train</c>.</summary>
-    public string Train { get; } = ReadableName(train);
+    public string Train { get; }
 
     /// <summary>The run's row, or null when it was never persisted and its decisions are only logged.</summary>
-    public long? MetadataId { get; } = metadataId;
+    public long? MetadataId { get; }
 
     /// <summary>
     /// The answers of the run this one repeats, each with the fingerprint it was recorded under,
     /// keyed as Trax.Core asks for them.
     /// </summary>
-    public IReadOnlyDictionary<(string Key, int Occurrence), RecordedAnswer> Replay { get; } =
-        replay;
+    public IReadOnlyDictionary<(string Key, int Occurrence), RecordedAnswer> Replay { get; }
 
     /// <summary>The id of the row written for each question's latest asking, for its routing.</summary>
     public ConcurrentDictionary<string, long> Latest { get; } = new();
@@ -71,20 +91,23 @@ internal sealed class DecisionRun(
     /// permanent: running it again on the same host hits the same wall, and asking afresh would
     /// break the promise the requeue made.
     /// </summary>
-    public static TrainException Unreplayable(Metadata metadata, string why)
+    public static TrainException Unreplayable(Metadata metadata, string why) =>
+        Unreplayable(metadata.Name, metadata.ExternalId, metadata.ReplayDecisionsOf, why);
+
+    /// <inheritdoc cref="Unreplayable(Metadata, string)"/>
+    public static TrainException Unreplayable(
+        string name,
+        string externalId,
+        long? replayDecisionsOf,
+        string why
+    )
     {
         var message =
-            $"Run {metadata.ExternalId} of train '{metadata.Name}' was queued to replay the "
-            + $"decisions of run {metadata.ReplayDecisionsOf}, but {why}. It is failed rather "
-            + "than asked afresh, because a fresh answer could take a different track from the "
-            + "run it repeats.";
+            $"Run {externalId} of train '{name}' was queued to replay the decisions of run "
+            + $"{replayDecisionsOf}, but {why}. It is failed rather than asked afresh, because a "
+            + "fresh answer could take a different track from the run it repeats.";
 
-        return Classified(
-            new TrainException(message),
-            metadata.Name,
-            metadata.ExternalId,
-            FailureClass.Permanent
-        );
+        return Classified(new TrainException(message), name, externalId, FailureClass.Permanent);
     }
 
     /// <summary>
@@ -136,6 +159,8 @@ internal sealed class DecisionRun(
     /// generic arguments written as C# writes them (<c>Route&lt;Order&gt;</c>), and a type nested in
     /// a generic type after its outer type. It must match Trax.Core's, which is internal there.
     /// </summary>
+    public static string NameOf(Type type) => ReadableName(type);
+
     private static string ReadableName(Type type) =>
         ReadableName(type, type.IsGenericType ? type.GetGenericArguments() : []);
 

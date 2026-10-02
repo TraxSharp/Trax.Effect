@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -5,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Trax.Core.Decisions;
 using Trax.Core.Exceptions;
 using Trax.Effect.Data.Services.IDataContextFactory;
+using Trax.Effect.Enums;
 using Trax.Effect.Exceptions;
 using Trax.Effect.Models.Metadata;
 using Trax.Effect.Models.RecordedDecision;
@@ -33,6 +35,14 @@ namespace Trax.Effect.Data.Decisions;
 /// run's own train reports under an external id other than the run's, because the train's
 /// <c>ExternalId</c> was changed while it ran, fails its step, classified permanent, rather than
 /// going unrecorded.</para>
+///
+/// <para>Code inside a run can lose the run's async flow, by suppressing
+/// <see cref="ExecutionContext"/> flow, say, so a decision, refusal, routing or replay lookup can
+/// arrive with no run on its flow. One reported by a train that has begun a recorded run on this
+/// host is then looked up by its external id: when exactly one run of that train is in progress
+/// under it, it is recorded against, or replayed from, that run. Otherwise it is logged only, as
+/// before. A plain train run inside a junction never begins a run, so its decisions are never
+/// looked up this way.</para>
 /// </remarks>
 public sealed class DecisionJournal(
     IDataContextProviderFactory contextFactory,
@@ -45,6 +55,14 @@ public sealed class DecisionJournal(
 
     private static readonly IReadOnlyDictionary<(string, int), RecordedAnswer> NothingToReplay =
         new Dictionary<(string, int), RecordedAnswer>();
+
+    /// <summary>
+    /// The row names each train has begun recorded runs under on this host, keyed by the name
+    /// Trax.Core reports the train's decisions under, so a decision that arrives without its run's
+    /// flow can be looked up by the train's own rows only. It grows with the trains, not the runs.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, byte>> _rowNames =
+        new();
 
     /// <summary>
     /// True: a requeue replays what was written, so a decision that could not be written must not
@@ -69,7 +87,10 @@ public sealed class DecisionJournal(
             decision.ReplayRefused is null ? "" : $"; not replayed: {decision.ReplayRefused}"
         );
 
-        if (Bound(decision.Train, decision.RunId) is not { MetadataId: { } metadataId } run)
+        if (
+            await Bound(decision.Train, decision.RunId, replay: false, cancellationToken)
+            is not { MetadataId: { } metadataId } run
+        )
             return;
 
         RecordedDecision record;
@@ -118,7 +139,10 @@ public sealed class DecisionJournal(
             refusal.Reason
         );
 
-        if (Bound(refusal.Train, refusal.RunId) is not { MetadataId: { } metadataId })
+        if (
+            await Bound(refusal.Train, refusal.RunId, replay: false, cancellationToken)
+            is not { MetadataId: { } metadataId }
+        )
             return;
 
         string? answer = null;
@@ -205,9 +229,21 @@ public sealed class DecisionJournal(
 
         // The routing is added to the row of the latest decision it routes on.
         if (
-            Bound(routing.Train, routing.RunId) is not { MetadataId: not null } run
-            || !run.Latest.TryGetValue(QuestionKey.For(routing.On), out var recordId)
+            await Bound(routing.Train, routing.RunId, replay: false, cancellationToken)
+            is not { MetadataId: { } metadataId } run
         )
+            return;
+
+        var key = QuestionKey.For(routing.On);
+
+        long recordId;
+
+        // A decision written while the run's flow was lost is in the table but not in Latest.
+        if (run.Latest.TryGetValue(key, out var latest))
+            recordId = latest;
+        else if (await LatestRecorded(routing, metadataId, key, cancellationToken) is { } written)
+            recordId = written;
+        else
             return;
 
         await Write(
@@ -241,13 +277,16 @@ public sealed class DecisionJournal(
     /// Answered from what <c>ServiceTrain.Run</c> loaded before the run's first junction, so it
     /// never goes to the database on the train's path.
     /// </remarks>
-    public Task<RecordedAnswer?> Replay(
+    public async Task<RecordedAnswer?> Replay(
         string train,
         string runId,
         string key,
         int occurrence,
         CancellationToken cancellationToken
-    ) => Task.FromResult(Bound(train, runId)?.Replay.GetValueOrDefault((key, occurrence)));
+    ) =>
+        (await Bound(train, runId, replay: true, cancellationToken))?.Replay.GetValueOrDefault(
+            (key, occurrence)
+        );
 
     /// <summary>
     /// Binds the run to its row and loads the answers of the runs it replays. A run that names one
@@ -268,11 +307,22 @@ public sealed class DecisionJournal(
         long? metadataId = metadata.Id > 0 ? metadata.Id : null;
 
         var replay = metadata.ReplayDecisionsOf is { } source
-            ? await LoadReplay(metadata, source, cancellationToken)
+            ? await LoadReplay(
+                new Replaying(metadata.Id, metadata.Name, metadata.ExternalId, source),
+                cancellationToken
+            )
             : NothingToReplay;
 
-        return new DecisionRun(metadata.ExternalId, train, metadataId, replay);
+        var run = new DecisionRun(metadata.ExternalId, train, metadataId, replay);
+
+        if (metadataId is not null)
+            _rowNames.GetOrAdd(run.Train, _ => new()).TryAdd(metadata.Name, 0);
+
+        return run;
     }
+
+    /// <summary>The run whose replay is loaded, and the run it names.</summary>
+    private sealed record Replaying(long Id, string Name, string ExternalId, long Source);
 
     /// <summary>
     /// How many runs back a replay follows <c>replay_decisions_of</c>. A run requeued this many
@@ -286,11 +336,12 @@ public sealed class DecisionJournal(
     /// failed before it reached a question still takes the track the first run took there.
     /// </summary>
     private async Task<IReadOnlyDictionary<(string, int), RecordedAnswer>> LoadReplay(
-        Metadata metadata,
-        long source,
+        Replaying metadata,
         CancellationToken cancellationToken
     )
     {
+        var source = metadata.Source;
+
         var chain = new List<long>();
         string? broken = null;
         List<(
@@ -400,7 +451,7 @@ public sealed class DecisionJournal(
         }
 
         if (broken is not null)
-            throw DecisionRun.Unreplayable(metadata, broken);
+            throw DecisionRun.Unreplayable(metadata.Name, metadata.ExternalId, source, broken);
 
         var answers = new Dictionary<(string, int), RecordedAnswer>();
         var nearestFirst = chain.Select((id, depth) => (id, depth)).ToDictionary();
@@ -427,7 +478,9 @@ public sealed class DecisionJournal(
             catch (JsonException e)
             {
                 throw DecisionRun.Unreplayable(
-                    metadata,
+                    metadata.Name,
+                    metadata.ExternalId,
+                    source,
                     $"the answer run {runId} recorded to '{key}' cannot be read: {e.Message}"
                 );
             }
@@ -461,19 +514,148 @@ public sealed class DecisionJournal(
     }
 
     /// <summary>
-    /// The run on this flow, when it is the run Trax.Core reported; null outside a service train's
-    /// run, or for a decision of another train run on the same flow (a plain train a junction
-    /// runs), whose decisions are logged only.
+    /// The run Trax.Core reported: the one on this flow, or, when the flow carries no run, the one
+    /// found by its row. Null outside a service train's run, or for a decision of another train run
+    /// on the same flow (a plain train a junction runs), whose decisions are logged only.
     /// </summary>
+    /// <param name="train">The train as Trax.Core named it.</param>
+    /// <param name="runId">The external id Trax.Core reported.</param>
+    /// <param name="replay">Whether a run found by its row needs the answers it replays.</param>
+    /// <param name="cancellationToken">The run's token.</param>
     /// <exception cref="Trax.Core.Exceptions.TrainException">
     /// The run's own train reported the decision under another external id. Writing nothing and
     /// carrying on would leave a decision the run acted on out of the record its requeue replays.
     /// </exception>
-    private static DecisionRun? Bound(string train, string runId) =>
+    private async Task<DecisionRun?> Bound(
+        string train,
+        string runId,
+        bool replay,
+        CancellationToken cancellationToken
+    ) =>
         DecisionRun.Current switch
         {
             { } run when run.RunId == runId => run,
             { } run when run.Train == train => throw run.Unbound(runId),
-            _ => null,
+            { } => null,
+            null => await Lost(train, runId, replay, cancellationToken),
         };
+
+    /// <summary>
+    /// The run a decision reported with no run on its flow belongs to: the one run of
+    /// <paramref name="train"/> in progress under <paramref name="runId"/>, among the rows that
+    /// train has begun recorded runs under on this host, or null when there is not exactly one.
+    /// </summary>
+    /// <remarks>
+    /// A train that never began a recorded run here, a plain train run inside a junction above
+    /// all, is never looked up, so its decisions cannot be taken for a run's even when it shares
+    /// the run's external id. The lookup uses <c>ix_metadata_external_id</c>. A database that
+    /// cannot be reached fails it, classified transient, as a write would.
+    /// </remarks>
+    private async Task<DecisionRun?> Lost(
+        string train,
+        string runId,
+        bool replay,
+        CancellationToken cancellationToken
+    )
+    {
+        if (!_rowNames.TryGetValue(train, out var known) || known.IsEmpty)
+            return null;
+
+        var names = known.Keys.ToList();
+        List<(long Id, string Name, long? ReplayDecisionsOf)> runs;
+
+        try
+        {
+            using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+            runs = (
+                await context
+                    .Metadatas.AsNoTracking()
+                    .Where(m =>
+                        m.ExternalId == runId
+                        && m.TrainState == TrainState.InProgress
+                        && m.DecisionsRecorded
+                        && names.Contains(m.Name)
+                    )
+                    .Select(m => new
+                    {
+                        m.Id,
+                        m.Name,
+                        m.ReplayDecisionsOf,
+                    })
+                    .Take(2)
+                    .ToListAsync(cancellationToken)
+            ).Select(m => (m.Id, m.Name, m.ReplayDecisionsOf)).ToList();
+        }
+        catch (Exception e)
+            when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            DecisionRun.Classified(e, train, runId, FailureClass.Transient);
+            throw;
+        }
+
+        if (runs.Count != 1)
+        {
+            if (runs.Count > 1)
+                _logger.LogWarning(
+                    "Train {Train} reported a decision for run {RunId} on an async flow that does "
+                        + "not carry its run, and more than one run of it is in progress under "
+                        + "that external id, so it cannot be told which; it is logged only.",
+                    train,
+                    runId
+                );
+
+            return null;
+        }
+
+        var (id, name, source) = runs[0];
+
+        _logger.LogWarning(
+            "Train {Train} reported a decision for run {RunId} on an async flow that does not carry "
+                + "its run, as happens when code in the run suppresses ExecutionContext flow. It is "
+                + "recorded against run {MetadataId}, the one run of it in progress under that "
+                + "external id.",
+            train,
+            runId,
+            id
+        );
+
+        var answers =
+            replay && source is { } replayed
+                ? await LoadReplay(new Replaying(id, name, runId, replayed), cancellationToken)
+                : NothingToReplay;
+
+        return new DecisionRun(runId, train, id, answers);
+    }
+
+    /// <summary>
+    /// The row written for the latest asking of <paramref name="key"/> in the run, for a routing
+    /// whose decision was written while the run's flow was lost, or null when there is none.
+    /// </summary>
+    private async Task<long?> LatestRecorded(
+        TrackRouted routing,
+        long metadataId,
+        string key,
+        CancellationToken cancellationToken
+    )
+    {
+        try
+        {
+            using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+            return await context
+                .RecordedDecisions.AsNoTracking()
+                .Where(d => d.MetadataId == metadataId && d.QuestionKey == key && d.Refused == null)
+                .OrderByDescending(d => d.Occurrence)
+                .ThenByDescending(d => d.Id)
+                .Select(d => (long?)d.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+        catch (Exception e)
+            when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            DecisionRun.Classified(e, routing.Train, routing.RunId, FailureClass.Transient);
+            throw;
+        }
+    }
 }

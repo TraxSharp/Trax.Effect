@@ -52,7 +52,8 @@ public class PostgresDecisionRecordingTests
         services
             .AddScopedTraxRoute<IPgRouteOrder, PgRouteOrder>()
             .AddScopedTraxRoute<IPgRouteThenPeek, PgRouteThenPeek>()
-            .AddScopedTraxRoute<IPgUnanswered, PgUnanswered>();
+            .AddScopedTraxRoute<IPgUnanswered, PgUnanswered>()
+            .AddScopedTraxRoute<IPgLoseFlowThenRoute, PgLoseFlowThenRoute>();
         _provider = services.BuildServiceProvider();
     }
 
@@ -181,6 +182,33 @@ public class PostgresDecisionRecordingTests
     }
 
     private IServiceTrain<PgOrder, string>? _lastTrain;
+
+    [Test]
+    public async Task A_decision_made_after_the_run_lost_its_flow_is_a_row_of_the_run_and_replayed()
+    {
+        Decider.Choice = PgFulfilment.ManualCheck;
+        var (original, first) = await Run<IPgLoseFlowThenRoute>();
+        first.Should().Be("held");
+
+        var row = (await Recorded(original.Metadata!.Id)).Should().ContainSingle().Subject;
+        row.Tracks().Should().Equal("ManualCheck");
+
+        Decider.Choice = PgFulfilment.Standard;
+        Decider.Asked = 0;
+        var (requeued, output) = await Run<IPgLoseFlowThenRoute>(
+            replayDecisionsOf: original.Metadata.Id
+        );
+
+        output.Should().Be("held");
+        Decider.Asked.Should().Be(0);
+        (await Recorded(requeued.Metadata!.Id))
+            .Should()
+            .ContainSingle()
+            .Which.Replayed.Should()
+            .BeTrue();
+
+        await Delete(original.Metadata.Id, requeued.Metadata.Id);
+    }
 
     private async Task<(IServiceTrain<PgOrder, string> Train, string Output)> Run<TTrain>(
         long? replayDecisionsOf = null
@@ -315,6 +343,44 @@ public class PostgresDecisionRecordingTests
                 )
                 .Chain<PgPeek>()
                 .Resolve();
+    }
+
+    public interface IPgLoseFlowThenRoute : IServiceTrain<PgOrder, string>;
+
+    /// <summary>
+    /// Builds its chain with ExecutionContext flow suppressed and left so, so every step resumes
+    /// without the run's async flow, then decides.
+    /// </summary>
+    public class PgLoseFlowThenRoute : ServiceTrain<PgOrder, string>, IPgLoseFlowThenRoute
+    {
+        protected override Task<Either<Exception, string>> Junctions()
+        {
+            ExecutionContext.SuppressFlow();
+            var built = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously
+            );
+
+            var chain = Chain(new PgAfter(built.Task))
+                .Switch<PgOrder, PgFulfilment>(tracks =>
+                    tracks
+                        .When(PgFulfilment.Standard, t => t.Chain<PgShip>())
+                        .When(PgFulfilment.ManualCheck, t => t.Chain<PgHold>())
+                )
+                .Resolve();
+
+            built.SetResult();
+            return chain;
+        }
+    }
+
+    /// <summary>Holds the chain until it is built, so no step runs on the thread that built it.</summary>
+    public class PgAfter(Task built) : Junction<PgOrder, PgOrder>
+    {
+        public override async Task<PgOrder> Run(PgOrder input)
+        {
+            await built.WaitAsync(TimeSpan.FromSeconds(30));
+            return input;
+        }
     }
 
     public class PgShip : Junction<PgOrder, string>

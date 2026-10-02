@@ -706,6 +706,79 @@ public class DecisionRecordingTests
     }
 
     [Test]
+    public async Task A_decision_made_after_code_in_the_run_lost_its_flow_is_recorded_against_the_run()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+
+        var (train, output) = await Run<ILoseFlowThenRoute>(new Order("o-lost", 20m));
+
+        output.Should().Be("held for review");
+        var decision = (await Recorded(train.Metadata!.Id)).Should().ContainSingle().Subject;
+        decision.Replayed.Should().BeFalse();
+        decision.Tracks().Should().Equal(["ManualCheck"], "the routing is added to the same row");
+    }
+
+    [Test]
+    public async Task A_requeue_that_loses_its_flow_still_replays_the_runs_decisions()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+        var (source, _) = await Run<ILoseFlowThenRoute>(new Order("o-lost-replay", 20m));
+
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+        var (requeue, output) = await Run<ILoseFlowThenRoute>(
+            new Order("o-lost-replay", 20m),
+            replayDecisionsOf: source.Metadata!.Id
+        );
+
+        output.Should().Be("held for review");
+        decider.Requests.Should().BeEmpty("the answer is replayed, not asked again");
+        var replayed = (await Recorded(requeue.Metadata!.Id)).Should().ContainSingle().Subject;
+        replayed.Replayed.Should().BeTrue();
+        replayed.Tracks().Should().Equal("ManualCheck");
+    }
+
+    [Test]
+    public async Task Runs_sharing_an_external_id_that_both_lose_their_flow_are_not_guessed_between()
+    {
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+        var shared = Id();
+        MeetBeforeDeciding.Expect(2);
+
+        var (first, firstRun) = Start<IMeetThenLoseFlow>(
+            new Order("o-lost-shared", 20m),
+            externalId: shared
+        );
+        var (second, secondRun) = Start<IMeetThenLoseFlow>(
+            new Order("o-lost-shared", 20m),
+            externalId: shared
+        );
+
+        var outputs = await Task.WhenAll(firstRun(), secondRun()).WaitAsync(Wait);
+
+        outputs.Should().Equal("shipped", "shipped");
+        decider.Requests.Should().HaveCount(2);
+        (await Recorded(first.Metadata!.Id)).Should().BeEmpty("either row could be the one");
+        (await Recorded(second.Metadata!.Id)).Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task A_plain_train_deciding_off_the_runs_flow_under_its_external_id_is_not_recorded_against_it()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard).YesNo<Rush>(0.9));
+        var shared = Id();
+        DecideInAPlainTrainOffFlow.ExternalId = shared;
+
+        var (train, run) = Start<IRunAPlainTrainOffFlow>(new Order("o-plain", 20m), shared);
+
+        (await run().WaitAsync(Wait)).Should().Be("shipped");
+        DecideInAPlainTrainOffFlow.Decided.Should().BeTrue("the plain train did decide");
+        (await Recorded(train.Metadata!.Id))
+            .Select(d => d.QuestionKey)
+            .Should()
+            .Equal(["Fulfilment"], "only the run's own decision is its");
+    }
+
+    [Test]
     public void Adding_decision_recording_twice_registers_it_once()
     {
         _provider.GetServices<IDecisionObserver>().Should().ContainSingle();
@@ -928,7 +1001,10 @@ internal static class DecisionTrains
             .AddScopedTraxRoute<IDecideThenSwitchTwice, DecideThenSwitchTwice>()
             .AddSingleton<OddShadow>()
             .AddScopedTraxRoute<IRouteWithOddShadow, RouteWithOddShadow>()
-            .AddScopedTraxRoute<IMeetThenRoute, MeetThenRoute>();
+            .AddScopedTraxRoute<IMeetThenRoute, MeetThenRoute>()
+            .AddScopedTraxRoute<ILoseFlowThenRoute, LoseFlowThenRoute>()
+            .AddScopedTraxRoute<IMeetThenLoseFlow, MeetThenLoseFlow>()
+            .AddScopedTraxRoute<IRunAPlainTrainOffFlow, RunAPlainTrainOffFlow>();
 }
 
 /// <summary>The registered decider, swapped per test.</summary>
@@ -1153,6 +1229,137 @@ public class MeetThenRoute : ServiceTrain<Order, string>, IMeetThenRoute
                     .When(Fulfilment.ManualCheck, t => t.Chain<HoldForReview>())
             )
             .Resolve();
+}
+
+public interface ILoseFlowThenRoute : IServiceTrain<Order, string>;
+
+/// <summary>Builds its chain with its run's async flow suppressed, then decides.</summary>
+public class LoseFlowThenRoute : ServiceTrain<Order, string>, ILoseFlowThenRoute
+{
+    protected override Task<Either<Exception, string>> Junctions()
+    {
+        var built = LoseTheFlow.Now();
+
+        var chain = Chain(new AfterTheChainIsBuilt(built.Task))
+            .Switch<Order, Fulfilment>(tracks =>
+                tracks
+                    .When(Fulfilment.Standard, t => t.Chain<Ship>())
+                    .When(Fulfilment.ManualCheck, t => t.Chain<HoldForReview>())
+            )
+            .Resolve();
+
+        built.SetResult();
+        return chain;
+    }
+}
+
+public interface IMeetThenLoseFlow : IServiceTrain<Order, string>;
+
+/// <summary>
+/// Builds its chain with its run's async flow suppressed, waits for the other run sharing its
+/// external id, then decides.
+/// </summary>
+public class MeetThenLoseFlow : ServiceTrain<Order, string>, IMeetThenLoseFlow
+{
+    protected override Task<Either<Exception, string>> Junctions()
+    {
+        var built = LoseTheFlow.Now();
+
+        var chain = Chain(new AfterTheChainIsBuilt(built.Task))
+            .Chain<MeetBeforeDeciding>()
+            .Switch<Order, Fulfilment>(tracks =>
+                tracks
+                    .When(Fulfilment.Standard, t => t.Chain<Ship>())
+                    .When(Fulfilment.ManualCheck, t => t.Chain<HoldForReview>())
+            )
+            .Resolve();
+
+        built.SetResult();
+        return chain;
+    }
+}
+
+/// <summary>
+/// Suppresses ExecutionContext flow and leaves it suppressed, as code that forgets to restore it
+/// does. Every step of a chain built after it captures no flow, so each resumes without the run's.
+/// </summary>
+public static class LoseTheFlow
+{
+    /// <returns>A signal to set once the chain is built, which nothing runs on inline.</returns>
+    public static TaskCompletionSource Now()
+    {
+        ExecutionContext.SuppressFlow();
+        return new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+}
+
+/// <summary>
+/// Holds the chain until it is fully built, so no step after it can run on the thread that built
+/// it, which still carries the run's flow.
+/// </summary>
+public class AfterTheChainIsBuilt(Task built) : Junction<Order, Order>
+{
+    public override async Task<Order> Run(Order input)
+    {
+        await built.WaitAsync(TimeSpan.FromSeconds(30));
+        return input;
+    }
+}
+
+[Asks("Is it a rush order?")]
+public sealed class Rush;
+
+public interface IRunAPlainTrainOffFlow : IServiceTrain<Order, string>;
+
+/// <summary>Runs a plain train that decides, off its own flow, then decides itself.</summary>
+public class RunAPlainTrainOffFlow : ServiceTrain<Order, string>, IRunAPlainTrainOffFlow
+{
+    protected override Task<Either<Exception, string>> Junctions() =>
+        Chain<DecideInAPlainTrainOffFlow>()
+            .Switch<Order, Fulfilment>(tracks =>
+                tracks
+                    .When(Fulfilment.Standard, t => t.Chain<Ship>())
+                    .When(Fulfilment.ManualCheck, t => t.Chain<HoldForReview>())
+            )
+            .Resolve();
+}
+
+/// <summary>
+/// Runs a plain train on a thread that does not carry the run's flow, under the run's external id,
+/// reporting to the host's journal.
+/// </summary>
+public class DecideInAPlainTrainOffFlow(
+    IDecider decider,
+    IDecisionObserver observer,
+    IDecisionReplay replay
+) : Junction<Order, Order>
+{
+    public static string ExternalId { get; set; } = "";
+
+    public static bool Decided { get; private set; }
+
+    public override async Task<Order> Run(Order input)
+    {
+        Decided = false;
+        Task<Order> plain;
+
+        using (ExecutionContext.SuppressFlow())
+            plain = Task.Run(() =>
+                new PlainRush(decider, observer, replay) { ExternalId = ExternalId }.Run(input)
+            );
+
+        var output = await plain;
+        Decided = true;
+        return output;
+    }
+}
+
+/// <summary>A plain train that decides whether an order is a rush.</summary>
+public class PlainRush(IDecider decider, IDecisionObserver observer, IDecisionReplay replay)
+    : Trax.Core.Train.Train<Order, Order>
+{
+    protected override Task<Either<Exception, Order>> Junctions() =>
+        AddServices(decider, observer, replay).Decide<Order>(q => q.YesNo<Rush>()).Resolve();
 }
 
 public class Ship : Junction<Order, string>
