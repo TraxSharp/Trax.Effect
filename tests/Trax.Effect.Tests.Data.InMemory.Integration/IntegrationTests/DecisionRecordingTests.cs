@@ -575,6 +575,29 @@ public class DecisionRecordingTests
     }
 
     [Test]
+    public async Task A_run_has_decisions_to_replay_when_it_recorded_one_or_replays_another()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+        var (decided, _) = await Run<IRouteOrder>(new Order("o-has", 20m));
+        var failedRequeue = await Seed<IRouteOrder>(replayDecisionsOf: decided.Metadata!.Id);
+        var undecided = await Seed<IRouteOrder>(replayDecisionsOf: null, decisionsRecorded: true);
+
+        using var scope = _provider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<IDataContext>();
+
+        (await context.HasDecisionsToReplay(decided.Metadata.Id, CancellationToken.None))
+            .Should()
+            .BeTrue();
+        (await context.HasDecisionsToReplay(failedRequeue, CancellationToken.None))
+            .Should()
+            .BeTrue("its requeue replays the answers of the run it replayed");
+        (await context.HasDecisionsToReplay(undecided, CancellationToken.None)).Should().BeFalse();
+        (await context.HasDecisionsToReplay(987_654_322, CancellationToken.None))
+            .Should()
+            .BeFalse();
+    }
+
+    [Test]
     public void Adding_decision_recording_twice_registers_it_once()
     {
         _provider.GetServices<IDecisionObserver>().Should().ContainSingle();

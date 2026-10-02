@@ -9,6 +9,10 @@ namespace Trax.Effect.Data.Decisions
         public System.Threading.Tasks.Task<Trax.Core.Decisions.RecordedAnswer?> Replay(string train, string runId, string key, int occurrence, System.Threading.CancellationToken cancellationToken) { }
         public System.Threading.Tasks.Task Routed(Trax.Core.Decisions.TrackRouted routing, System.Threading.CancellationToken cancellationToken) { }
     }
+    public static class DecisionReplays
+    {
+        public static System.Threading.Tasks.Task<bool> HasDecisionsToReplay(this Trax.Effect.Data.Services.DataContext.IDataContext context, long metadataId, System.Threading.CancellationToken cancellationToken) { }
+    }
 }
 namespace Trax.Effect.Data.Extensions
 {
