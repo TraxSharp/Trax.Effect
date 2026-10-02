@@ -68,5 +68,5 @@ rather than a guard, and nothing stops a new hook elsewhere from awaiting a clie
 
 ## Changelog
 
-- **2026-09-28**: Recorded.
 - **2026-10-02**: A full queue gives up junction events before train events.
+- **2026-09-28**: Recorded.

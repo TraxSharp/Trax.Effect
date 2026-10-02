@@ -136,9 +136,9 @@ tests check the fields that exist against known secrets, not the shape of every 
 
 ## Changelog
 
-- **2026-10-02**: Recorded.
-- **2026-10-02**: A manifest's run carries its attempt.
-- **2026-10-02**: Sensitive question types are matched in every form of their key; the SignalR payload leaves answers out unless asked, and its queue drops steps first.
-- **2026-10-02**: Junction events have a RabbitMQ exchange of their own.
-- **2026-10-02**: An observer registered after `AddTrax` refuses the host while decisions are recorded.
 - **2026-10-02**: The attempt query is indexed, reads a bounded number of runs, and is timed out.
+- **2026-10-02**: An observer registered after `AddTrax` refuses the host while decisions are recorded.
+- **2026-10-02**: Junction events have a RabbitMQ exchange of their own.
+- **2026-10-02**: Sensitive question types are matched in every form of their key; the SignalR payload leaves answers out unless asked, and its queue drops steps first.
+- **2026-10-02**: A manifest's run carries its attempt.
+- **2026-10-02**: Recorded.
