@@ -743,6 +743,7 @@ public class DecisionRecordingTests
         var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
         var shared = Id();
         MeetBeforeDeciding.Expect(2);
+        MeetAfterDeciding.Expect(2);
 
         var (first, firstRun) = Start<IMeetThenLoseFlow>(
             new Order("o-lost-shared", 20m),
@@ -1257,7 +1258,8 @@ public interface IMeetThenLoseFlow : IServiceTrain<Order, string>;
 
 /// <summary>
 /// Builds its chain with its run's async flow suppressed, waits for the other run sharing its
-/// external id, then decides.
+/// external id, then decides, and waits again before finishing so both runs are still in progress
+/// while each decision is looked up.
 /// </summary>
 public class MeetThenLoseFlow : ServiceTrain<Order, string>, IMeetThenLoseFlow
 {
@@ -1269,8 +1271,11 @@ public class MeetThenLoseFlow : ServiceTrain<Order, string>, IMeetThenLoseFlow
             .Chain<MeetBeforeDeciding>()
             .Switch<Order, Fulfilment>(tracks =>
                 tracks
-                    .When(Fulfilment.Standard, t => t.Chain<Ship>())
-                    .When(Fulfilment.ManualCheck, t => t.Chain<HoldForReview>())
+                    .When(Fulfilment.Standard, t => t.Chain<MeetAfterDeciding>().Chain<Ship>())
+                    .When(
+                        Fulfilment.ManualCheck,
+                        t => t.Chain<MeetAfterDeciding>().Chain<HoldForReview>()
+                    )
             )
             .Resolve();
 
@@ -1384,7 +1389,12 @@ public class FailAfterRouting : Junction<string, string>
         throw new InvalidOperationException("the warehouse is offline");
 }
 
-public class MeetBeforeDeciding : Junction<Order, Order>
+/// <summary>
+/// Holds each run until the expected number have arrived. Each subclass is a barrier of its own,
+/// since a generic type's statics are per closed type.
+/// </summary>
+public abstract class Meeting<TSelf> : Junction<Order, Order>
+    where TSelf : Meeting<TSelf>
 {
     private static int _expected;
     private static int _arrived;
@@ -1408,6 +1418,14 @@ public class MeetBeforeDeciding : Junction<Order, Order>
         return input;
     }
 }
+
+public class MeetBeforeDeciding : Meeting<MeetBeforeDeciding>;
+
+/// <summary>
+/// Holds each run on its track until every run has decided, so none completes while another's
+/// decision is still being looked up by external id.
+/// </summary>
+public class MeetAfterDeciding : Meeting<MeetAfterDeciding>;
 
 /// <summary>Reads the run's decisions through a context of its own, as another process would.</summary>
 public class PeekDecisions(IDataContextProviderFactory factory) : EffectJunction<string, string>
