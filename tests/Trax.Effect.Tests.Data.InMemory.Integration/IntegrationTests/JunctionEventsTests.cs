@@ -239,6 +239,52 @@ public class JunctionEventsTests
     }
 
     [Test]
+    public async Task The_answer_to_a_closed_form_of_a_sensitive_generic_question_is_withheld()
+    {
+        Decider.Use(new ScriptedDecider().YesNo<Held<Refund>>(0.9));
+
+        var (metadataId, _) = await Run<IHeldTrain>();
+
+        AssertWithheld(metadataId, "Held<Refund>");
+        (await Rows(metadataId))
+            .Where(r => r.Kind != JunctionRunKind.Junction)
+            .Should()
+            .HaveCount(2)
+            .And.OnlyContain(r => r.AnswerWithheld && r.Answer == null && r.Confidence == null);
+    }
+
+    [Test]
+    public async Task The_answer_to_a_question_about_a_type_that_inherits_the_mark_is_withheld()
+    {
+        Decider.Use(new ScriptedDecider().YesNo<Audit>(0.2));
+
+        var (metadataId, _) = await Run<IAuditTrain>();
+
+        AssertWithheld(metadataId, "Audit");
+    }
+
+    private void AssertWithheld(long metadataId, string key)
+    {
+        var steps = Handler
+            .For(metadataId)
+            .Where(e => e.EventType is "Decided" or "Routed")
+            .Select(e => e.Junction!)
+            .ToList();
+
+        steps.Should().HaveCount(2);
+        steps
+            .Should()
+            .OnlyContain(
+                s =>
+                    s.QuestionKey == key
+                    && s.AnswerWithheld
+                    && s.Answer == null
+                    && s.Confidence == null,
+                $"a question about a marked type has its answer and track withheld. See {Adr}."
+            );
+    }
+
+    [Test]
     public async Task Junction_events_are_off_unless_the_host_asks_for_them()
     {
         var handler = new CapturingHandler();
@@ -498,7 +544,9 @@ internal static class JunctionEventTrains
             .AddSingleton(decider)
             .AddScopedTraxRoute<ILaneTrain, LaneTrain>()
             .AddScopedTraxRoute<ILaneThenFailTrain, LaneThenFailTrain>()
-            .AddScopedTraxRoute<ICustomsTrain, CustomsTrain>();
+            .AddScopedTraxRoute<ICustomsTrain, CustomsTrain>()
+            .AddScopedTraxRoute<IHeldTrain, HeldTrain>()
+            .AddScopedTraxRoute<IAuditTrain, AuditTrain>();
 }
 
 /// <summary>Records every junction event it is handed.</summary>
@@ -696,4 +744,33 @@ public class CustomsTrain : ServiceTrain<Parcel, string>, ICustomsTrain
                     .When(CustomsTier.Red, t => t.Chain<Load>())
             )
             .Resolve();
+}
+
+[TraxSensitive]
+[Asks("Should this parcel be held?")]
+public sealed class Held<T>;
+
+public sealed class Refund;
+
+[TraxSensitive]
+public abstract class SensitiveQuestion;
+
+[Asks("Should this parcel be audited?")]
+public sealed class Audit : SensitiveQuestion;
+
+public interface IHeldTrain : IServiceTrain<Parcel, string>;
+
+public class HeldTrain : ServiceTrain<Parcel, string>, IHeldTrain
+{
+    protected override Task<Either<Exception, string>> Junctions() =>
+        Gate<Parcel, Held<Refund>>(g => g.Yes(y => y.Chain<Load>()).No(n => n.Chain<Load>()))
+            .Resolve();
+}
+
+public interface IAuditTrain : IServiceTrain<Parcel, string>;
+
+public class AuditTrain : ServiceTrain<Parcel, string>, IAuditTrain
+{
+    protected override Task<Either<Exception, string>> Junctions() =>
+        Gate<Parcel, Audit>(g => g.Yes(y => y.Chain<Load>()).No(n => n.Chain<Load>())).Resolve();
 }
