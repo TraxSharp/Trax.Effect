@@ -8,33 +8,28 @@ using Trax.Effect.Extensions;
 namespace Trax.Effect.Tests.Integration.UnitTests.Decisions;
 
 /// <summary>
-/// <c>AddNimbleDecider</c> is the first-class way to give trains a decider: Nimble on a local
-/// Ollama by default, Bespoke's hosted API with a key. These pin what each default resolves to.
+/// <c>AddNimbleDecider</c> reaches Nimble on a server the caller runs. These pin the defaults taken
+/// from Nimble's own serving code, that there is no default endpoint, and how several System One
+/// deciders are registered side by side.
 /// </summary>
 public class NimbleDeciderTests
 {
-    [Test]
-    public void ByDefault_ItReachesNimbleOnALocalOllama()
-    {
-        var options = new NimbleOptions().ToSystemOne();
+    private static readonly Uri Server = new("http://localhost:8000/v1/systemone");
 
-        options.Endpoint.Should().Be(new Uri("http://localhost:11434/v1/systemone"));
-        options.Model.Should().Be("nimble:9b");
+    [Test]
+    public void ByDefault_ItAsksForNimblesCheckpointWithinItsServersLimits()
+    {
+        var options = new NimbleOptions { Endpoint = Server }.ToSystemOne();
+
+        options.Endpoint.Should().Be(Server);
+        options.Model.Should().Be("bespokelabs/Bespoke-Nimble-9B");
         options.ApiKey.Should().BeNull();
-        options.MaxConcurrentRequests.Should().BeNull("a local model is not rate-limited");
+        options
+            .MaxConcurrentRequests.Should()
+            .Be(4, "Nimble's server runs four evaluations per container and answers 529 beyond");
         options.MaxQuestions.Should().Be(64);
+        options.MaxOptions.Should().Be(26);
         options.AttemptTimeout.Should().Be(TimeSpan.FromSeconds(30));
-    }
-
-    [Test]
-    public void WithAnApiKey_ItReachesBespokesHostedApiWithinItsLimits()
-    {
-        var options = new NimbleOptions { ApiKey = "bsk-test" }.ToSystemOne();
-
-        options.Endpoint.Should().Be(new Uri("https://api.bespokelabs.ai/v1/systemone"));
-        options.Model.Should().Be("nimble-v3");
-        options.ApiKey.Should().Be("bsk-test");
-        options.MaxConcurrentRequests.Should().Be(8, "Bespoke allows 8 requests at once");
     }
 
     [Test]
@@ -43,20 +38,40 @@ public class NimbleDeciderTests
         var options = new NimbleOptions
         {
             Endpoint = new Uri("https://nimble.internal.example/v1/systemone"),
-            Model = "nimble:9b-q4",
-            MaxConcurrentRequests = 3,
+            ApiKey = "nimble-key",
+            Model = "bespokelabs/Bespoke-Nimble-9B-v2",
+            MaxConcurrentRequests = 12,
+            MaxOptions = 255,
         }.ToSystemOne();
 
         options.Endpoint!.Host.Should().Be("nimble.internal.example");
-        options.Model.Should().Be("nimble:9b-q4");
-        options.MaxConcurrentRequests.Should().Be(3);
+        options.ApiKey.Should().Be("nimble-key");
+        options.Model.Should().Be("bespokelabs/Bespoke-Nimble-9B-v2");
+        options.MaxConcurrentRequests.Should().Be(12);
+        options.MaxOptions.Should().Be(255);
+    }
+
+    [Test]
+    public void WithoutAnEndpoint_StopsTheHostFromStarting()
+    {
+        var register = () =>
+            new ServiceCollection().AddTrax(trax =>
+                trax.AddEffects(effects => effects.AddNimbleDecider(_ => { }))
+            );
+
+        register
+            .Should()
+            .Throw<ArgumentException>()
+            .WithMessage("*Endpoint is required*Nimble server you run*");
     }
 
     [Test]
     public void AddNimbleDecider_RegistersTheDeciderTrainsFind()
     {
         using var provider = new ServiceCollection()
-            .AddTrax(trax => trax.AddEffects(effects => effects.AddNimbleDecider()))
+            .AddTrax(trax =>
+                trax.AddEffects(effects => effects.AddNimbleDecider(o => o.Endpoint = Server))
+            )
             .BuildServiceProvider();
 
         provider.GetRequiredService<IDecider>().Should().BeOfType<SystemOneDecider>();
@@ -73,7 +88,13 @@ public class NimbleDeciderTests
     {
         var register = () =>
             new ServiceCollection().AddTrax(trax =>
-                trax.AddEffects(effects => effects.AddNimbleDecider(o => o.Model = model))
+                trax.AddEffects(effects =>
+                    effects.AddNimbleDecider(o =>
+                    {
+                        o.Endpoint = Server;
+                        o.Model = model;
+                    })
+                )
             );
 
         register.Should().Throw<ArgumentException>().WithMessage("*floating alias*");
@@ -86,11 +107,110 @@ public class NimbleDeciderTests
             new ServiceCollection().AddTrax(trax =>
                 trax.AddEffects(effects =>
                     effects.AddNimbleDecider(o =>
-                        o.Endpoint = new Uri("http://gpu-box.internal:11434/v1/systemone")
+                        o.Endpoint = new Uri("http://gpu-box.internal:8000/v1/systemone")
                     )
                 )
             );
 
         register.Should().Throw<ArgumentException>().WithMessage("*is not HTTPS*");
+    }
+
+    [Test]
+    public void NamedDeciders_RegisterSideBySideForACascade()
+    {
+        var services = new ServiceCollection().AddTrax(trax =>
+            trax.AddEffects(effects =>
+                effects
+                    .AddNimbleDecider("nimble", o => o.Endpoint = Server)
+                    .AddSystemOneDecider(
+                        "jev",
+                        o =>
+                        {
+                            o.Endpoint = new Uri("https://api.example.test/v1/systemone");
+                            o.Model = "jev-1.13.0";
+                            o.ApiKey = "sk-test";
+                        }
+                    )
+            )
+        );
+        services.AddSingleton<IDecider>(sp => new CascadingDecider(
+            sp.GetRequiredKeyedService<SystemOneDecider>("nimble"),
+            sp.GetRequiredKeyedService<SystemOneDecider>("jev")
+        ));
+        using var provider = services.BuildServiceProvider();
+
+        var nimble = provider.GetRequiredKeyedService<SystemOneDecider>("nimble");
+        var jev = provider.GetRequiredKeyedService<SystemOneDecider>("jev");
+
+        nimble.Should().NotBeSameAs(jev);
+        nimble.Options.Model.Should().Be("bespokelabs/Bespoke-Nimble-9B");
+        nimble.Options.Endpoint.Should().Be(Server);
+        jev.Options.Model.Should().Be("jev-1.13.0");
+        jev.Options.ApiKey.Should().Be("sk-test");
+        provider.GetRequiredService<IDecider>().Should().BeOfType<CascadingDecider>();
+        provider
+            .GetService<SystemOneDecider>()
+            .Should()
+            .BeNull("a named decider is not the one every train asks");
+    }
+
+    [Test]
+    public void TwoUnnamedDeciders_StopTheHostFromStartingRatherThanTheLastWinning()
+    {
+        var register = () =>
+            new ServiceCollection().AddTrax(trax =>
+                trax.AddEffects(effects =>
+                    effects
+                        .AddNimbleDecider(o => o.Endpoint = Server)
+                        .AddSystemOneDecider(o =>
+                        {
+                            o.Endpoint = new Uri("https://api.example.test/v1/systemone");
+                            o.Model = "jev-1.13.0";
+                        })
+                )
+            );
+
+        register
+            .Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("*already registered as the IDecider*give each a name*");
+    }
+
+    [Test]
+    public void TheSameNameTwice_StopsTheHostFromStarting()
+    {
+        var register = () =>
+            new ServiceCollection().AddTrax(trax =>
+                trax.AddEffects(effects =>
+                    effects
+                        .AddNimbleDecider("tier1", o => o.Endpoint = Server)
+                        .AddNimbleDecider("tier1", o => o.Endpoint = Server)
+                )
+            );
+
+        register
+            .Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("*named 'tier1' is already registered*");
+    }
+
+    [Test]
+    public async Task TheContainer_DisposesTheDeciderItBuilt()
+    {
+        var provider = new ServiceCollection()
+            .AddTrax(trax =>
+                trax.AddEffects(effects => effects.AddNimbleDecider(o => o.Endpoint = Server))
+            )
+            .BuildServiceProvider();
+        var decider = provider.GetRequiredService<SystemOneDecider>();
+
+        await provider.DisposeAsync();
+
+        var decide = () =>
+            decider.Decide(
+                new DecisionRequest("T", "state", [new YesNoQuestion("Q", "?", null, null)]),
+                CancellationToken.None
+            );
+        await decide.Should().ThrowAsync<ObjectDisposedException>();
     }
 }

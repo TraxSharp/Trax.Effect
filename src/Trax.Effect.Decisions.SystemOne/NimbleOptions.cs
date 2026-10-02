@@ -1,58 +1,85 @@
 namespace Trax.Effect.Decisions.SystemOne;
 
 /// <summary>
-/// Where <c>AddNimbleDecider</c> reaches Nimble, Bespoke Labs' open-weights typed decision model:
-/// a local Ollama by default, or Bespoke's hosted API when an <see cref="ApiKey"/> is given.
+/// Where <c>AddNimbleDecider</c> reaches Nimble, Bespoke Labs' open-weights typed decision model,
+/// on a server you run with Nimble's own serving code.
 /// </summary>
 /// <remarks>
-/// Nimble speaks the System One request format, so this resolves to <see cref="SystemOneOptions"/>
-/// with Nimble's endpoints, models and limits filled in. Anything left unset takes the default for
-/// where it runs.
+/// Nimble's server (<c>nimble/serving/server.py</c> in <c>bespokelabsai/nimble</c>, on
+/// <c>openjev-sglang</c>) answers <c>POST /v1/systemone</c> in the System One request format, so
+/// this resolves to <see cref="SystemOneOptions"/> with that server's model name and limits filled
+/// in.
+///
+/// <para>There is no default <see cref="Endpoint"/>. Nimble's documentation describes no
+/// production hosted API, and the public demo it links to is unauthenticated, runs on one GPU and
+/// is not somewhere to send a train's state, so the URL of your own server is required and
+/// checked when the host starts.</para>
+///
+/// <para>The server sets its own limits: it accepts 64 questions a request, 2 to 26 options or
+/// levels a question, 8,192 prompt tokens per question and a 2 MiB body, and turns away a fifth
+/// concurrent evaluation per container with a 529. Token and body limits cannot be checked here,
+/// so a request over them is answered 413 or 422 and fails as permanent.</para>
 /// </remarks>
 public sealed class NimbleOptions
 {
-    /// <summary>Ollama's System One endpoint on this machine.</summary>
-    public static readonly Uri LocalEndpoint = new("http://localhost:11434/v1/systemone");
-
-    /// <summary>Bespoke Labs' hosted System One endpoint.</summary>
-    public static readonly Uri HostedEndpoint = new("https://api.bespokelabs.ai/v1/systemone");
-
-    /// <summary>The Ollama model: Nimble 9B, the open weights.</summary>
-    public const string LocalModel = "nimble:9b";
-
-    /// <summary>The hosted model, pinned to its version.</summary>
-    public const string HostedModel = "nimble-v3";
-
-    /// <summary>How many requests Bespoke's hosted API accepts at once for one organisation.</summary>
-    public const int HostedConcurrentRequests = 8;
-
     /// <summary>
-    /// A Bespoke Labs API key. Setting it selects the hosted API; leaving it null selects a local
-    /// Ollama. Never logged.
+    /// The checkpoint id Nimble's server answers to, besides the floating <c>nimble-latest</c>.
     /// </summary>
-    public string? ApiKey { get; set; }
+    /// <remarks>
+    /// The request cannot pin a revision: the server serves whichever revision it was deployed
+    /// with and echoes back the name it was asked for. Pin the revision where the server is
+    /// deployed, and re-tune confidence thresholds when you change it.
+    /// </remarks>
+    public const string DefaultModel = "bespokelabs/Bespoke-Nimble-9B";
 
     /// <summary>
-    /// The endpoint, when it is neither of the defaults: an Ollama on another host, or a gateway in
-    /// front of either. Must be HTTPS unless it is a loopback address.
+    /// How many evaluations one Nimble server container runs at once before it answers 529.
+    /// </summary>
+    public const int DefaultMaxConcurrentRequests = 4;
+
+    /// <summary>The most options or levels Nimble's server accepts on one question.</summary>
+    public const int DefaultMaxOptions = 26;
+
+    /// <summary>The most questions Nimble's server accepts in one request.</summary>
+    public const int MaxQuestionsPerRequest = 64;
+
+    /// <summary>
+    /// The full URL of <c>POST /v1/systemone</c> on a Nimble server you run, for example
+    /// <c>https://nimble.internal.example/v1/systemone</c> or
+    /// <c>http://localhost:8000/v1/systemone</c>. Required. Must be HTTPS unless it is a loopback
+    /// address.
     /// </summary>
     public Uri? Endpoint { get; set; }
 
     /// <summary>
-    /// The model. Defaults to <see cref="LocalModel"/> locally and <see cref="HostedModel"/> hosted.
-    /// Pin it: a floating name such as <c>nimble-latest</c> or a bare <c>nimble</c> is refused.
+    /// The server's API key, sent as a bearer token. Nimble's server checks one only when it is
+    /// started with <c>OPENJEV_API_KEY</c>; leave this unset, or blank, for one that is not.
+    /// Never logged.
     /// </summary>
-    public string? Model { get; set; }
+    public string? ApiKey { get; set; }
 
     /// <summary>
-    /// How many requests may be in flight at once. Defaults to
-    /// <see cref="HostedConcurrentRequests"/> hosted and to no limit locally.
+    /// The model name sent with each request. Defaults to <see cref="DefaultModel"/>; set it when
+    /// your server is deployed under another name. <c>nimble-latest</c> is refused.
     /// </summary>
-    public int? MaxConcurrentRequests { get; set; }
+    public string Model { get; set; } = DefaultModel;
+
+    /// <summary>
+    /// How many requests may be in flight at once, or null for no limit. Defaults to
+    /// <see cref="DefaultMaxConcurrentRequests"/>, one server container's capacity; raise it when
+    /// the server scales to more containers.
+    /// </summary>
+    public int? MaxConcurrentRequests { get; set; } = DefaultMaxConcurrentRequests;
+
+    /// <summary>
+    /// The most options or levels one question may offer. Defaults to
+    /// <see cref="DefaultMaxOptions"/>; raise it only for a server whose prompt code accepts more.
+    /// </summary>
+    public int MaxOptions { get; set; } = DefaultMaxOptions;
 
     /// <summary>
     /// How long one attempt may take. Defaults to 30 seconds, longer than for a hosted model,
-    /// because a local Nimble on a CPU or a small GPU answers in seconds rather than milliseconds.
+    /// because a self-hosted server can be slow on its first request after loading.
     /// </summary>
     public TimeSpan AttemptTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
@@ -62,22 +89,33 @@ public sealed class NimbleOptions
     /// <summary>The wait before the first retry, doubling after each. Defaults to half a second.</summary>
     public TimeSpan RetryDelay { get; set; } = TimeSpan.FromMilliseconds(500);
 
-    /// <summary>True when these options reach Bespoke's hosted API.</summary>
-    public bool IsHosted => ApiKey is not null;
+    /// <summary>
+    /// The longest wait before a retry; a longer <c>Retry-After</c> ends the retries. Defaults to
+    /// thirty seconds.
+    /// </summary>
+    public TimeSpan MaxRetryDelay { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>What is wrong with these options that only Nimble can say, or nothing.</summary>
+    internal IEnumerable<string> Problems()
+    {
+        if (Endpoint is null)
+            yield return "Endpoint is required: the URL of POST /v1/systemone on a Nimble server "
+                + "you run (for example http://localhost:8000/v1/systemone). There is no "
+                + "hosted Nimble API to default to.";
+    }
 
     internal SystemOneOptions ToSystemOne() =>
         new()
         {
-            Endpoint = Endpoint ?? (IsHosted ? HostedEndpoint : LocalEndpoint),
-            Model = Model ?? (IsHosted ? HostedModel : LocalModel),
+            Endpoint = Endpoint,
+            Model = Model,
             ApiKey = ApiKey,
-            MaxConcurrentRequests =
-                MaxConcurrentRequests ?? (IsHosted ? HostedConcurrentRequests : null),
+            MaxConcurrentRequests = MaxConcurrentRequests,
             AttemptTimeout = AttemptTimeout,
             MaxAttempts = MaxAttempts,
             RetryDelay = RetryDelay,
-            // Nimble's own limits: 64 questions a request, 2 to 255 options or levels a question.
-            MaxQuestions = 64,
-            MaxOptions = 255,
+            MaxRetryDelay = MaxRetryDelay,
+            MaxQuestions = MaxQuestionsPerRequest,
+            MaxOptions = MaxOptions,
         };
 }

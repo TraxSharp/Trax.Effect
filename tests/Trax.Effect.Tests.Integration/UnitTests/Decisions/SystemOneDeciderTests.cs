@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json.Nodes;
 using FluentAssertions;
@@ -363,15 +364,428 @@ public class SystemOneDeciderTests
         construct.Should().Throw<ArgumentException>().WithMessage($"*{problem}*");
     }
 
-    [Test]
-    public void Constructing_ForASelfHostedModelOnLoopback_AllowsHttp()
+    [TestCase("file:///etc/passwd", "not an http or https URL")]
+    [TestCase("ftp://localhost/v1/systemone", "not an http or https URL")]
+    [TestCase("http://localhost.attacker.example/v1/systemone", "is not HTTPS")]
+    [TestCase("http://127.0.0.1.attacker.example/v1/systemone", "is not HTTPS")]
+    [TestCase("http://192.168.1.10:8000/v1/systemone", "is not HTTPS")]
+    public void Constructing_WithAnEndpointThatIsNotSafeToSendTo_IsRefused(
+        string endpoint,
+        string problem
+    )
     {
-        using var decider = new SystemOneDecider(
-            Options(o => o.Endpoint = new Uri("http://localhost:8080/v1/systemone"))
-        );
+        var construct = () => new SystemOneDecider(Options(o => o.Endpoint = new Uri(endpoint)));
+
+        construct.Should().Throw<ArgumentException>().WithMessage($"*{problem}*");
+    }
+
+    [TestCase("http://localhost:8080/v1/systemone")]
+    [TestCase("http://127.0.0.1:8000/v1/systemone")]
+    [TestCase("http://127.8.9.10:8000/v1/systemone")]
+    [TestCase("http://[::1]:8000/v1/systemone")]
+    public void Constructing_ForAModelOnLoopback_AllowsHttp(string endpoint)
+    {
+        using var decider = new SystemOneDecider(Options(o => o.Endpoint = new Uri(endpoint)));
 
         decider.Should().NotBeNull();
     }
+
+    [TestCase(null)]
+    [TestCase("")]
+    [TestCase("   ")]
+    public async Task Decide_WithNoKey_SendsNoAuthorization(string? key)
+    {
+        var model = new FakeModel(_ => Ok(Answered));
+        using var decider = new SystemOneDecider(
+            Options(o => o.ApiKey = key),
+            new HttpClient(model)
+        );
+
+        await decider.Decide(Ticket, CancellationToken.None);
+
+        model.Requests.Should().ContainSingle().Which.Authorization.Should().BeNull();
+    }
+
+    [Test]
+    public async Task Decide_WithoutConfidence_TakesTheProbabilityOfWhatWasChosen()
+    {
+        using var decider = new SystemOneDecider(
+            Options(),
+            new HttpClient(
+                new FakeModel(_ =>
+                    Ok(
+                        """
+                        {"model":"jev-1.13.0","answers":{
+                          "TicketTrack":{"type":"choice","choice":"Refund",
+                                         "probabilities":{"Refund":0.87,"Escalate":0.13}},
+                          "Urgency":{"type":"score","score":0.7,
+                                     "probabilities":{"0":0.3,"1":0.7}}}}
+                        """
+                    )
+                )
+            )
+        );
+
+        var result = await decider.Decide(Ticket, CancellationToken.None);
+
+        result
+            .Answers["TicketTrack"]
+            .Should()
+            .BeOfType<ChoiceAnswer>()
+            .Which.Confidence.Should()
+            .Be(0.87);
+        result
+            .Answers["Urgency"]
+            .Should()
+            .BeOfType<ScoreAnswer>()
+            .Which.Confidence.Should()
+            .Be(0.7, "the score is nearest level 1");
+    }
+
+    [Test]
+    public async Task Decide_WithNeitherConfidenceNorProbabilities_LeavesTheAnswerOut()
+    {
+        using var decider = new SystemOneDecider(
+            Options(),
+            new HttpClient(
+                new FakeModel(_ =>
+                    Ok(
+                        """
+                        {"model":"jev-1.13.0","answers":{
+                          "TicketTrack":{"type":"choice","choice":"Refund"},
+                          "Urgency":{"type":"score","score":1.0}}}
+                        """
+                    )
+                )
+            )
+        );
+
+        var result = await decider.Decide(Ticket, CancellationToken.None);
+
+        result.Answers.Should().BeEmpty();
+    }
+
+    [TestCase("""{"1":0.04,"2":0.96}""")]
+    [TestCase("""{"0":1.0}""")]
+    [TestCase("""{"0":0.5,"1":0.3,"2":0.2}""")]
+    [TestCase("""{"0":0.5,"01":0.5}""")]
+    public async Task Decide_AScoreWhoseProbabilitiesAreNotEveryLevelFromZero_IsLeftOut(
+        string probabilities
+    )
+    {
+        // Sorting "1" and "2" would otherwise shift the answer one level down.
+        using var decider = new SystemOneDecider(
+            Options(),
+            new HttpClient(
+                new FakeModel(_ =>
+                    Ok(
+                        $$"""
+                        {"model":"jev-1.13.0","answers":{
+                          "Urgency":{"type":"score","score":1.0,"confidence":0.9,
+                                     "probabilities":{{probabilities}}
+                        } } }
+                        """
+                    )
+                )
+            )
+        );
+
+        var result = await decider.Decide(Ticket, CancellationToken.None);
+
+        result.Answers.Should().NotContainKey("Urgency");
+    }
+
+    [Test]
+    public async Task Decide_AnAnswerOfTheWrongType_IsLeftOut()
+    {
+        using var decider = new SystemOneDecider(
+            Options(),
+            new HttpClient(
+                new FakeModel(_ =>
+                    Ok(
+                        """{"model":"jev-1.13.0","answers":{"TicketTrack":{"type":"noul","noul":0.9}}}"""
+                    )
+                )
+            )
+        );
+
+        var result = await decider.Decide(Ticket, CancellationToken.None);
+
+        result.Answers.Should().BeEmpty();
+    }
+
+    [TestCase("<html>Bad gateway</html>")]
+    [TestCase("")]
+    [TestCase("[1, 2]")]
+    [TestCase("""{"model": 7, "answers": {}}""")]
+    public async Task Decide_ASuccessThatIsNotASystemOneResponse_IsRetriedThenFailsTransiently(
+        string body
+    )
+    {
+        var model = new FakeModel(_ => Ok(body));
+        using var decider = new SystemOneDecider(
+            Options(o => o.MaxAttempts = 2),
+            new HttpClient(model)
+        );
+
+        var decide = () => decider.Decide(Ticket, CancellationToken.None);
+
+        var failure = (await decide.Should().ThrowAsync<DecisionServiceException>()).Which;
+        failure.Message.Should().Contain("not a System One response");
+        ClassOf(failure).Should().Be(FailureClass.Transient);
+        model.Requests.Should().HaveCount(2);
+    }
+
+    [Test]
+    public async Task Decide_AStateThatCannotBeWrittenAsJson_FailsPermanentlyWithoutSending()
+    {
+        var model = new FakeModel(_ => Ok(Answered));
+        using var decider = new SystemOneDecider(Options(), new HttpClient(model));
+        var loop = new Loop();
+        loop.Next = loop;
+
+        var decide = () => decider.Decide(Ticket with { State = loop }, CancellationToken.None);
+
+        var failure = (await decide.Should().ThrowAsync<DecisionServiceException>()).Which;
+        failure.Message.Should().Contain("state cannot be written as JSON");
+        ClassOf(failure).Should().Be(FailureClass.Permanent);
+        model.Requests.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task Decide_AStateOfATypeJsonCannotHold_FailsPermanentlyWithoutSending()
+    {
+        var model = new FakeModel(_ => Ok(Answered));
+        using var decider = new SystemOneDecider(Options(), new HttpClient(model));
+
+        var decide = () =>
+            decider.Decide(
+                Ticket with
+                {
+                    State = new { Kind = typeof(string) },
+                },
+                CancellationToken.None
+            );
+
+        var failure = (await decide.Should().ThrowAsync<DecisionServiceException>()).Which;
+        failure.Message.Should().Contain("state cannot be written as JSON");
+        ClassOf(failure).Should().Be(FailureClass.Permanent);
+        model.Requests.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task Decide_AQuestionTheFormatCannotAsk_FailsPermanently()
+    {
+        var model = new FakeModel(_ => Ok(Answered));
+        using var decider = new SystemOneDecider(Options(), new HttpClient(model));
+
+        var decide = () =>
+            decider.Decide(
+                Ticket with
+                {
+                    Questions = [new FreeTextQuestion("Why", "Why?")],
+                },
+                CancellationToken.None
+            );
+
+        var failure = (await decide.Should().ThrowAsync<DecisionServiceException>()).Which;
+        failure.Message.Should().Contain("'Why' is a FreeTextQuestion");
+        ClassOf(failure).Should().Be(FailureClass.Permanent);
+        model.Requests.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task Decide_AnOptionNamedTwice_IsRefusedForWhatItIs()
+    {
+        using var decider = new SystemOneDecider(
+            Options(),
+            new HttpClient(new FakeModel(_ => Ok(Answered)))
+        );
+        var twice = Ticket with
+        {
+            Questions =
+            [
+                new ChoiceQuestion("Lane", "Which lane?", [new("A", "Left"), new("A", "Right")]),
+            ],
+        };
+
+        var decide = () => decider.Decide(twice, CancellationToken.None);
+
+        var failure = (await decide.Should().ThrowAsync<DecisionServiceException>()).Which;
+        failure.Message.Should().Contain("offers the option 'A' more than once");
+        failure.Message.Should().NotContain("at most");
+        ClassOf(failure).Should().Be(FailureClass.Permanent);
+    }
+
+    [Test]
+    public async Task Decide_AQuestionKeyUsedTwice_IsRefused()
+    {
+        using var decider = new SystemOneDecider(
+            Options(),
+            new HttpClient(new FakeModel(_ => Ok(Answered)))
+        );
+        var twice = Ticket with
+        {
+            Questions =
+            [
+                new YesNoQuestion("Q", "One?", null, null),
+                new YesNoQuestion("Q", "Two?", null, null),
+            ],
+        };
+
+        var decide = () => decider.Decide(twice, CancellationToken.None);
+
+        var failure = (await decide.Should().ThrowAsync<DecisionServiceException>()).Which;
+        failure.Message.Should().Contain("asks the question 'Q' more than once");
+        ClassOf(failure).Should().Be(FailureClass.Permanent);
+    }
+
+    [Test]
+    public async Task Decide_WaitsAsLongAsTheModelAsks()
+    {
+        var model = new FakeModel(attempt =>
+            attempt == 1 ? Status(HttpStatusCode.TooManyRequests, retryAfter: 2) : Ok(Answered)
+        );
+        using var decider = new SystemOneDecider(Options(), new HttpClient(model));
+        var waits = Record(decider, jitter: 0);
+
+        await decider.Decide(Ticket, CancellationToken.None);
+
+        waits.Should().Equal(TimeSpan.FromSeconds(2));
+        model.Requests.Should().HaveCount(2);
+    }
+
+    [Test]
+    public async Task Decide_JitterOnlyEverLengthensTheWaitTheModelAsks()
+    {
+        var model = new FakeModel(attempt =>
+            attempt == 1 ? Status(HttpStatusCode.ServiceUnavailable, retryAfter: 2) : Ok(Answered)
+        );
+        using var decider = new SystemOneDecider(Options(), new HttpClient(model));
+        var waits = Record(decider, jitter: 0.5);
+
+        await decider.Decide(Ticket, CancellationToken.None);
+
+        waits.Should().Equal(TimeSpan.FromSeconds(2.1));
+    }
+
+    [Test]
+    public async Task Decide_AModelAskingForALongerWaitThanAllowed_FailsTransientlyWithoutRetrying()
+    {
+        var model = new FakeModel(_ => Status((HttpStatusCode)529, retryAfter: 120));
+        using var decider = new SystemOneDecider(
+            Options(o => o.MaxRetryDelay = TimeSpan.FromSeconds(30)),
+            new HttpClient(model)
+        );
+        var waits = Record(decider, jitter: 0);
+
+        var decide = () => decider.Decide(Ticket, CancellationToken.None);
+
+        var failure = (await decide.Should().ThrowAsync<DecisionServiceException>()).Which;
+        failure.Message.Should().Contain("retried in 120s").And.Contain("MaxRetryDelay (30s)");
+        ClassOf(failure).Should().Be(FailureClass.Transient);
+        model.Requests.Should().ContainSingle("it is not retried before the model said to");
+        waits.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task Decide_BacksOffByDoublingWithJitter()
+    {
+        var model = new FakeModel(_ => Status(HttpStatusCode.BadGateway));
+        using var decider = new SystemOneDecider(
+            Options(o =>
+            {
+                o.RetryDelay = TimeSpan.FromSeconds(1);
+                o.MaxAttempts = 4;
+            }),
+            new HttpClient(model)
+        );
+        var waits = Record(decider, jitter: 0.5);
+
+        await decider
+            .Invoking(d => d.Decide(Ticket, CancellationToken.None))
+            .Should()
+            .ThrowAsync<DecisionServiceException>();
+
+        // Half of each doubled delay is fixed and half is jitter.
+        waits
+            .Should()
+            .Equal(TimeSpan.FromSeconds(0.75), TimeSpan.FromSeconds(1.5), TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public async Task Decide_ABackoffThatWouldOverflow_StopsAtMaxRetryDelay()
+    {
+        var model = new FakeModel(_ => Status(HttpStatusCode.ServiceUnavailable));
+        using var decider = new SystemOneDecider(
+            Options(o =>
+            {
+                o.RetryDelay = TimeSpan.MaxValue;
+                o.MaxRetryDelay = TimeSpan.FromSeconds(5);
+                o.MaxAttempts = 70;
+            }),
+            new HttpClient(model)
+        );
+        var waits = Record(decider, jitter: 0.999);
+
+        await decider
+            .Invoking(d => d.Decide(Ticket, CancellationToken.None))
+            .Should()
+            .ThrowAsync<DecisionServiceException>();
+
+        waits.Should().HaveCount(69).And.OnlyContain(w => w <= TimeSpan.FromSeconds(5));
+    }
+
+    [TestCase(HttpStatusCode.NotImplemented)]
+    [TestCase(HttpStatusCode.HttpVersionNotSupported)]
+    public async Task Decide_AMethodOrVersionTheServerDoesNotImplement_IsNotRetried(
+        HttpStatusCode status
+    )
+    {
+        var model = new FakeModel(_ => Status(status));
+        using var decider = new SystemOneDecider(Options(), new HttpClient(model));
+
+        var decide = () => decider.Decide(Ticket, CancellationToken.None);
+
+        var failure = (await decide.Should().ThrowAsync<DecisionServiceException>()).Which;
+        ClassOf(failure).Should().Be(FailureClass.Permanent);
+        model.Requests.Should().ContainSingle();
+    }
+
+    [TestCase(-1)]
+    [TestCase(2 * 24 * 60 * 60)]
+    public void Constructing_WithAMaxRetryDelayOutOfRange_IsRefused(int seconds)
+    {
+        var construct = () =>
+            new SystemOneDecider(Options(o => o.MaxRetryDelay = TimeSpan.FromSeconds(seconds)));
+
+        construct.Should().Throw<ArgumentException>().WithMessage("*MaxRetryDelay*");
+    }
+
+    private static FailureClass? ClassOf(Exception failure) =>
+        ((TrainExceptionData)failure.Data["TrainExceptionData"]!).FailureClass;
+
+    /// <summary>Records each wait before a retry instead of waiting, with the jitter fixed.</summary>
+    private static List<TimeSpan> Record(SystemOneDecider decider, double jitter)
+    {
+        var waits = new List<TimeSpan>();
+        decider.Wait = (delay, _) =>
+        {
+            lock (waits)
+                waits.Add(delay);
+            return Task.CompletedTask;
+        };
+        decider.Jitter = () => jitter;
+        return waits;
+    }
+
+    private sealed class Loop
+    {
+        public Loop? Next { get; set; }
+    }
+
+    private sealed record FreeTextQuestion(string Key, string Instructions)
+        : Question(Key, Instructions);
 
     private static HttpResponseMessage Ok(string json) =>
         new(HttpStatusCode.OK)
@@ -379,8 +793,19 @@ public class SystemOneDeciderTests
             Content = new StringContent(json, Encoding.UTF8, "application/json"),
         };
 
-    private static HttpResponseMessage Status(HttpStatusCode status, string body = "") =>
-        new(status) { Content = new StringContent(body) };
+    private static HttpResponseMessage Status(
+        HttpStatusCode status,
+        string body = "",
+        int? retryAfter = null
+    )
+    {
+        var response = new HttpResponseMessage(status) { Content = new StringContent(body) };
+        if (retryAfter is { } seconds)
+            response.Headers.RetryAfter = new RetryConditionHeaderValue(
+                TimeSpan.FromSeconds(seconds)
+            );
+        return response;
+    }
 
     private sealed record SentRequest(string? Authorization, JsonNode Body);
 

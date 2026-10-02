@@ -12,16 +12,25 @@ namespace Trax.Effect.Decisions.SystemOne;
 /// <summary>
 /// Answers a train's questions through the System One request format: one state and a set of
 /// typed questions in, typed answers with calibrated probabilities out. Jev introduced the format;
-/// d1, Laya, Kev, OpenDecider and other typed decision models accept it, hosted or self-hosted.
+/// d1, Laya, Kev, Nimble, OpenDecider and other typed decision models accept it, hosted or
+/// self-hosted.
 /// </summary>
 /// <remarks>
 /// A choice is sent as <c>choice</c>, a scale as <c>score</c> and a yes/no as <c>noul</c>, with
 /// each option's description as its criterion. Every answer carries the model and version the
 /// response names, so a decision can be traced to the model that made it.
 ///
-/// <para>A throttled, unavailable or slow model is retried, honouring <c>Retry-After</c>. When
-/// retries run out the failure is classified transient; a request the model refuses (bad input, a
-/// bad key) is classified permanent and not retried. Cancelling the train cancels the request.</para>
+/// <para>A choice or score answer without a <c>confidence</c>, which the format allows, takes the
+/// probability of the chosen option or level instead; one with neither is left out. A score's
+/// probabilities must name every level, from 0, or the answer is left out rather than shifted onto
+/// the wrong levels.</para>
+///
+/// <para>A throttled, unavailable or slow model, or one that answers with something other than a
+/// System One response, is retried with a jittered, doubling wait, honouring <c>Retry-After</c> up
+/// to <see cref="SystemOneOptions.MaxRetryDelay"/>. When retries run out, or the model asks for a
+/// longer wait than that, the failure is classified transient; a request the model refuses (bad
+/// input, a bad key, a method or version it does not implement) or that cannot be sent at all is
+/// classified permanent and not retried. Cancelling the train cancels the request.</para>
 /// </remarks>
 public sealed class SystemOneDecider : IDecider, IDisposable
 {
@@ -34,6 +43,8 @@ public sealed class SystemOneDecider : IDecider, IDisposable
     private readonly bool _ownsHttp;
 
     private readonly SemaphoreSlim? _slots;
+
+    private int _disposed;
 
     /// <summary>Creates a decider with an HTTP client of its own.</summary>
     /// <exception cref="ArgumentException">The options are not usable.</exception>
@@ -59,19 +70,34 @@ public sealed class SystemOneDecider : IDecider, IDisposable
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(http);
 
-        if (options.Problems().ToList() is { Count: > 0 } problems)
-            throw new ArgumentException(
-                $"SystemOneDecider cannot be used: {string.Join(" ", problems)}",
-                nameof(options)
-            );
+        try
+        {
+            options.Check(nameof(options));
+        }
+        catch
+        {
+            if (ownsHttp)
+                http.Dispose();
+            throw;
+        }
 
-        _options = options;
+        _options = options.Copy();
         _http = http;
         _ownsHttp = ownsHttp;
-        _slots = options.MaxConcurrentRequests is { } limit
+        _slots = _options.MaxConcurrentRequests is { } limit
             ? new SemaphoreSlim(limit, limit)
             : null;
     }
+
+    /// <summary>The checked copy of the options this decider was built with.</summary>
+    internal SystemOneOptions Options => _options;
+
+    /// <summary>How the decider waits before a retry. Replaced in tests to record the waits.</summary>
+    internal Func<TimeSpan, CancellationToken, Task> Wait { get; set; } =
+        (delay, ct) => Task.Delay(delay, ct);
+
+    /// <summary>A number in [0, 1) that spreads retries out. Replaced in tests to fix it.</summary>
+    internal Func<double> Jitter { get; set; } = Random.Shared.NextDouble;
 
     /// <inheritdoc />
     public async Task<DecisionResult> Decide(
@@ -79,6 +105,8 @@ public sealed class SystemOneDecider : IDecider, IDisposable
         CancellationToken cancellationToken
     )
     {
+        ArgumentNullException.ThrowIfNull(request);
+
         if (request.Questions.Count > _options.MaxQuestions)
             throw Refused(
                 request,
@@ -93,9 +121,9 @@ public sealed class SystemOneDecider : IDecider, IDisposable
         {
             body = Request(request).ToJsonString();
         }
-        catch (ArgumentException tooMany)
+        catch (Unsendable unsendable)
         {
-            throw Refused(request, tooMany.Message, FailureClass.Permanent);
+            throw Refused(request, unsendable.Message, FailureClass.Permanent);
         }
 
         for (var attempt = 1; ; attempt++)
@@ -118,7 +146,7 @@ public sealed class SystemOneDecider : IDecider, IDisposable
                     Content = new StringContent(body, Encoding.UTF8, "application/json"),
                 };
 
-                if (_options.ApiKey is { } key)
+                if (_options.Bearer is { } key)
                     message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
 
                 using var response = await _http
@@ -155,6 +183,11 @@ public sealed class SystemOneDecider : IDecider, IDisposable
             {
                 failure = $"the model could not be reached: {e.Message}";
             }
+            catch (MalformedResponse e)
+            {
+                failure =
+                    $"the model answered with something that is not a System One response: {e.Message}";
+            }
             finally
             {
                 _slots?.Release();
@@ -167,19 +200,54 @@ public sealed class SystemOneDecider : IDecider, IDisposable
                     FailureClass.Transient
                 );
 
-            var delay = retryAfter ?? _options.RetryDelay * Math.Pow(2, attempt - 1);
-            await Task.Delay(Min(delay, TimeSpan.FromSeconds(30)), cancellationToken)
-                .ConfigureAwait(false);
+            if (retryAfter > _options.MaxRetryDelay)
+                throw Refused(
+                    request,
+                    $"{failure}, and it asked to be retried in {Seconds(retryAfter.Value)}, "
+                        + $"longer than MaxRetryDelay ({Seconds(_options.MaxRetryDelay)})",
+                    FailureClass.Transient
+                );
+
+            await Wait(Delay(attempt, retryAfter), cancellationToken).ConfigureAwait(false);
         }
     }
 
     /// <inheritdoc />
     public void Dispose()
     {
+        // The container can hold this under both its own type and IDecider, and disposes each.
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            return;
+
         _slots?.Dispose();
 
         if (_ownsHttp)
             _http.Dispose();
+    }
+
+    /// <summary>
+    /// The wait before the retry after <paramref name="attempt"/>: what the model asked for, with
+    /// a little added so a fleet of callers does not return at the same instant, or else the
+    /// doubling <see cref="SystemOneOptions.RetryDelay"/>, jittered and capped.
+    /// </summary>
+    private TimeSpan Delay(int attempt, TimeSpan? retryAfter)
+    {
+        var ceiling = _options.MaxRetryDelay.TotalMilliseconds;
+
+        if (retryAfter is { } asked)
+        {
+            // Never earlier than asked; the extra stays under the cap, which asked is within.
+            var extra = Math.Min(asked.TotalMilliseconds * 0.1, 1000) * Jitter();
+            return TimeSpan.FromMilliseconds(Math.Min(asked.TotalMilliseconds + extra, ceiling));
+        }
+
+        // Math.Min with the ceiling also absorbs an infinite product, so this cannot overflow.
+        var backoff = Math.Min(
+            _options.RetryDelay.TotalMilliseconds * Math.Pow(2, Math.Min(attempt - 1, 62)),
+            ceiling
+        );
+
+        return TimeSpan.FromMilliseconds(backoff / 2 + backoff / 2 * Jitter());
     }
 
     private JsonObject Request(DecisionRequest request)
@@ -187,6 +255,13 @@ public sealed class SystemOneDecider : IDecider, IDisposable
         var questions = new JsonObject();
 
         foreach (var question in request.Questions)
+        {
+            if (questions.ContainsKey(question.Key))
+                throw new Unsendable(
+                    $"it asks the question '{question.Key}' more than once. Each question needs "
+                        + "a distinct key"
+                );
+
             questions[question.Key] = question switch
             {
                 ChoiceQuestion choice => new JsonObject
@@ -194,7 +269,7 @@ public sealed class SystemOneDecider : IDecider, IDisposable
                     ["type"] = "choice",
                     ["instructions"] = choice.Instructions,
                     ["criteria"] = new JsonObject(
-                        Limit(choice, choice.Options)
+                        Distinct(choice, Limit(choice, choice.Options))
                             .Select(o =>
                                 KeyValuePair.Create(o.Name, (JsonNode?)(o.Description ?? o.Name))
                             )
@@ -220,85 +295,192 @@ public sealed class SystemOneDecider : IDecider, IDisposable
                         ["false"] = yesNo.No ?? "No",
                     },
                 },
-                _ => throw new NotSupportedException(
-                    $"SystemOneDecider cannot ask a {question.GetType().Name}."
+                _ => throw new Unsendable(
+                    $"the question '{question.Key}' is a {question.GetType().Name}, which the "
+                        + "System One format cannot ask"
                 ),
             };
+        }
 
         return new JsonObject
         {
             ["model"] = _options.Model,
-            ["state"] = request.State is string text
-                ? JsonValue.Create(text)
-                : JsonSerializer.SerializeToNode(request.State, StateJson),
+            ["state"] = State(request.State),
             ["questions"] = questions,
         };
+    }
+
+    private static JsonNode? State(object state)
+    {
+        if (state is string text)
+            return JsonValue.Create(text);
+
+        try
+        {
+            return JsonSerializer.SerializeToNode(state, StateJson);
+        }
+        catch (Exception e) when (e is JsonException or NotSupportedException)
+        {
+            throw new Unsendable($"its state cannot be written as JSON: {e.Message}");
+        }
     }
 
     private IReadOnlyList<Criterion> Limit(Question question, IReadOnlyList<Criterion> criteria) =>
         criteria.Count <= _options.MaxOptions
             ? criteria
-            : throw new ArgumentException(
+            : throw new Unsendable(
                 $"the question '{question.Key}' offers {criteria.Count} options, and the model "
                     + $"accepts at most {_options.MaxOptions}"
             );
 
+    private static IReadOnlyList<Criterion> Distinct(
+        Question question,
+        IReadOnlyList<Criterion> options
+    )
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var option in options)
+            if (!seen.Add(option.Name))
+                throw new Unsendable(
+                    $"the question '{question.Key}' offers the option '{option.Name}' more than "
+                        + "once. Each option needs a distinct name"
+                );
+
+        return options;
+    }
+
     /// <summary>
     /// Reads the answers out of a response. An answer that cannot be read is left out, so the
-    /// train fails on it as unanswered rather than acting on a guess.
+    /// train fails on it as unanswered rather than acting on a guess. A body that is not a System
+    /// One response at all is thrown as <see cref="MalformedResponse"/>.
     /// </summary>
     private static DecisionResult Read(string json, DecisionRequest request)
     {
-        var root = JsonNode.Parse(json) as JsonObject;
-        var model = root?["model"]?.GetValue<string>();
         var answers = new Dictionary<string, Answer>();
 
-        if (root?["answers"] is not JsonObject given)
-            return new DecisionResult(answers);
+        try
+        {
+            if (JsonNode.Parse(json) is not JsonObject root)
+                throw new MalformedResponse("the body is not a JSON object");
 
-        foreach (var question in request.Questions)
-            if (given[question.Key] is JsonObject node && Answer(node) is { } answer)
-                answers[question.Key] = answer with { Model = model };
+            var model = root["model"] switch
+            {
+                null => null,
+                JsonValue value when value.GetValueKind() == JsonValueKind.String =>
+                    value.GetValue<string>(),
+                _ => throw new MalformedResponse("its 'model' is not a string"),
+            };
+
+            if (root["answers"] is not JsonObject given)
+                return new DecisionResult(answers);
+
+            foreach (var question in request.Questions)
+                if (given[question.Key] is JsonObject node && Answer(node, question) is { } answer)
+                    answers[question.Key] = answer with { Model = model };
+        }
+        catch (Exception e) when (e is JsonException or ArgumentException)
+        {
+            throw new MalformedResponse(e.Message);
+        }
 
         return new DecisionResult(answers);
     }
 
-    private static Answer? Answer(JsonObject node)
+    private static Answer? Answer(JsonObject node, Question question)
     {
         try
         {
-            return (string?)node["type"] switch
+            var type = node["type"]?.GetValue<string>();
+
+            return question switch
             {
-                "choice" => new ChoiceAnswer(
-                    node["choice"]!.GetValue<string>(),
-                    node["confidence"]!.GetValue<double>(),
-                    node["probabilities"]
-                        ?.AsObject()
-                        .ToDictionary(p => p.Key, p => p.Value!.GetValue<double>())
+                ChoiceQuestion when type == "choice" => Choice(node),
+                ScoreQuestion score when type == "score" => Score(node, score.Levels.Count),
+                YesNoQuestion when type == "noul" => new YesNoAnswer(
+                    node["noul"]!.GetValue<double>()
                 ),
-                "score" => new ScoreAnswer(
-                    node["score"]!.GetValue<double>(),
-                    node["confidence"]!.GetValue<double>(),
-                    node["probabilities"]
-                        ?.AsObject()
-                        .OrderBy(p => int.Parse(p.Key, CultureInfo.InvariantCulture))
-                        .Select(p => p.Value!.GetValue<double>())
-                        .ToList()
-                ),
-                "noul" => new YesNoAnswer(node["noul"]!.GetValue<double>()),
                 _ => null,
             };
         }
         catch (Exception e)
-            when (e is NullReferenceException or InvalidOperationException or FormatException)
+            when (e
+                    is NullReferenceException
+                        or InvalidOperationException
+                        or FormatException
+                        or ArgumentException
+            )
         {
             return null;
         }
     }
 
+    /// <summary>
+    /// A choice, whose confidence is the chosen option's probability when the model gives none.
+    /// </summary>
+    private static ChoiceAnswer? Choice(JsonObject node)
+    {
+        var choice = node["choice"]!.GetValue<string>();
+        var probabilities = node["probabilities"]
+            ?.AsObject()
+            .ToDictionary(p => p.Key, p => p.Value!.GetValue<double>());
+
+        double? confidence =
+            node["confidence"] is { } given ? given.GetValue<double>()
+            : probabilities?.TryGetValue(choice, out var chosen) == true ? chosen
+            : null;
+
+        return confidence is { } c ? new ChoiceAnswer(choice, c, probabilities) : null;
+    }
+
+    /// <summary>
+    /// A score, whose probabilities must be keyed by every level from 0 and nothing else, and
+    /// whose confidence is the probability of the level nearest the score when the model gives
+    /// none.
+    /// </summary>
+    private static ScoreAnswer? Score(JsonObject node, int levels)
+    {
+        var score = node["score"]!.GetValue<double>();
+        List<double>? probabilities = null;
+
+        if (node["probabilities"] is { } given)
+        {
+            var byLevel = given.AsObject();
+
+            if (byLevel.Count != levels)
+                return null;
+
+            probabilities = new List<double>(levels);
+
+            for (var level = 0; level < levels; level++)
+                if (byLevel[level.ToString(CultureInfo.InvariantCulture)] is { } p)
+                    probabilities.Add(p.GetValue<double>());
+                else
+                    return null;
+        }
+
+        double? confidence =
+            node["confidence"] is { } stated ? stated.GetValue<double>()
+            : probabilities is null ? null
+            : probabilities[
+                Math.Clamp((int)Math.Round(score, MidpointRounding.AwayFromZero), 0, levels - 1)
+            ];
+
+        return confidence is { } c ? new ScoreAnswer(score, c, probabilities) : null;
+    }
+
+    /// <summary>
+    /// Throttled, timed out or unavailable. A 501 or 505 says the server will never handle the
+    /// request, so it is not retried.
+    /// </summary>
     private static bool IsRetryable(HttpStatusCode status) =>
         status is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests
-        || (int)status >= 500;
+        || (
+            (int)status >= 500
+            && status
+                is not HttpStatusCode.NotImplemented
+                    and not HttpStatusCode.HttpVersionNotSupported
+        );
 
     private static TimeSpan? RetryAfter(RetryConditionHeaderValue? header) =>
         header?.Delta
@@ -339,15 +521,18 @@ public sealed class SystemOneDecider : IDecider, IDisposable
                         + (id is null ? "" : $" (request {id})");
             }
         }
-        catch (JsonException)
+        catch (Exception e) when (e is JsonException or ArgumentException)
         {
-            // Not JSON; the text itself is the detail.
+            // Not JSON, or not JSON this can read; the text itself is the detail.
         }
 
         return $": {Clip(text)}";
     }
 
     private static string Clip(string text) => text.Length > 300 ? text[..300] + "…" : text;
+
+    private static string Seconds(TimeSpan span) =>
+        string.Create(CultureInfo.InvariantCulture, $"{span.TotalSeconds:0.#}s");
 
     /// <summary>
     /// A failure carrying its class, which Trax keeps when it records the run's failure.
@@ -375,9 +560,13 @@ public sealed class SystemOneDecider : IDecider, IDisposable
         return exception;
     }
 
-    private static TimeSpan Min(TimeSpan a, TimeSpan b) => a < b ? a : b;
-
     private static TimeSpan Max(TimeSpan a, TimeSpan b) => a > b ? a : b;
+
+    /// <summary>A request that cannot be sent as it is; never worth retrying.</summary>
+    private sealed class Unsendable(string message) : Exception(message);
+
+    /// <summary>A successful status whose body is not a System One response.</summary>
+    private sealed class MalformedResponse(string message) : Exception(message);
 }
 
 /// <summary>
