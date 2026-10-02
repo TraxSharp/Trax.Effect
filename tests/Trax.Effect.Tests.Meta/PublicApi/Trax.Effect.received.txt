@@ -910,6 +910,8 @@ namespace Trax.Effect.Models.RecordedDecision
         public string? Routes { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("shadows")]
         public string? Shadows { get; set; }
+        [System.ComponentModel.DataAnnotations.Schema.Column("state_hash")]
+        public string? StateHash { get; set; }
     }
 }
 namespace Trax.Effect.Models.RunnerNonce

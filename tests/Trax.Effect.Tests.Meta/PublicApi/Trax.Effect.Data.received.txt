@@ -10,6 +10,12 @@ namespace Trax.Effect.Data.Decisions
         public System.Threading.Tasks.Task<Trax.Core.Decisions.RecordedAnswer?> Replay(string train, string runId, string key, int occurrence, System.Threading.CancellationToken cancellationToken) { }
         public System.Threading.Tasks.Task Routed(Trax.Core.Decisions.TrackRouted routing, System.Threading.CancellationToken cancellationToken) { }
     }
+    public sealed class DecisionRecordingOptions
+    {
+        public static readonly System.TimeSpan DefaultMaxReplayAge;
+        public System.TimeSpan MaxReplayAge { get; }
+        public Trax.Effect.Data.Decisions.DecisionRecordingOptions ReplayAnswersFor(System.TimeSpan maxAge) { }
+    }
     public static class DecisionReplays
     {
         public static System.Threading.Tasks.Task<bool> HasDecisionsToReplay(this Trax.Effect.Data.Services.DataContext.IDataContext context, long metadataId, System.Threading.CancellationToken cancellationToken) { }
@@ -25,6 +31,9 @@ namespace Trax.Effect.Data.Extensions
         [System.Obsolete("Call UsePostgres(...), UseSqlite(...) or UseInMemory(...) before AddDecisionRecor" +
             "ding().", true)]
         public static Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData AddDecisionRecording(this Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilder configurationBuilder) { }
+        [System.Obsolete("Call UsePostgres(...), UseSqlite(...) or UseInMemory(...) before AddDecisionRecor" +
+            "ding().", true)]
+        public static Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData AddDecisionRecording(this Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilder configurationBuilder, System.Action<Trax.Effect.Data.Decisions.DecisionRecordingOptions> configure) { }
         [System.Obsolete("Call UsePostgres(...), UseSqlite(...) or UseInMemory(...) before AddJunctionEvent" +
             "s().", true)]
         public static Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData AddJunctionEvents(this Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilder configurationBuilder) { }
@@ -33,6 +42,7 @@ namespace Trax.Effect.Data.Extensions
     {
         public static Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData AddDataContextLogging(this Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData configurationBuilder, Microsoft.Extensions.Logging.LogLevel? minimumLogLevel = default, System.Collections.Generic.List<string>? blacklist = null) { }
         public static Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData AddDecisionRecording(this Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData configurationBuilder) { }
+        public static Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData AddDecisionRecording(this Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData configurationBuilder, System.Action<Trax.Effect.Data.Decisions.DecisionRecordingOptions> configure) { }
         public static Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData AddJunctionEvents(this Trax.Effect.Configuration.TraxEffectBuilder.TraxEffectBuilderWithData configurationBuilder) { }
     }
 }

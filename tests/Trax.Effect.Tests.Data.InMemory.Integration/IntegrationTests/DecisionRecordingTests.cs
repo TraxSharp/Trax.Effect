@@ -24,9 +24,14 @@ namespace Trax.Effect.Tests.Data.InMemory.Integration.IntegrationTests;
 /// With <c>AddDecisionRecording</c>, every decision a train makes is written against its run as
 /// it is made, and a run that names an earlier one in <c>ReplayDecisionsOf</c> takes the tracks
 /// that run took instead of asking again.
+///
+/// <para>Enforces docs/adr/0020-a-recorded-answer-replays-only-while-it-is-fresh.md.</para>
 /// </summary>
+[Property("adr", "docs/adr/0020-a-recorded-answer-replays-only-while-it-is-fresh.md")]
 public class DecisionRecordingTests
 {
+    private const string Adr = "docs/adr/0020-a-recorded-answer-replays-only-while-it-is-fresh.md";
+
     private ServiceProvider _provider = null!;
 
     private static readonly DeciderSlot Decider = new();
@@ -155,6 +160,187 @@ public class DecisionRecordingTests
         replayed.Replayed.Should().BeTrue();
         replayed.Decider.Should().BeNull();
         replayed.Tracks().Should().Equal("ManualCheck");
+    }
+
+    [Test]
+    public async Task A_decision_is_recorded_with_the_hash_of_its_state()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+        var (first, _) = await Run<IRouteOrder>(new Order("o-hash", 20m));
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+        var (other, _) = await Run<IRouteOrder>(new Order("o-hash", 2000m));
+
+        var one = (await Recorded(first.Metadata!.Id)).Should().ContainSingle().Subject;
+        var two = (await Recorded(other.Metadata!.Id)).Should().ContainSingle().Subject;
+
+        one.StateHash.Should().MatchRegex("^[0-9a-f]{64}$");
+        two.StateHash.Should().NotBe(one.StateHash, $"the states differ. See {Adr}.");
+    }
+
+    [Test]
+    public async Task A_requeue_whose_state_changed_since_asks_afresh()
+    {
+        StockLevel.Total = 20m;
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+        var (original, first) = await Run<IReadThenRoute>(new Order("o-moved", 0m));
+        first.Should().Be("shipped");
+
+        // What the junction before the decision reads has changed while the run waited.
+        StockLevel.Total = 2000m;
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+
+        var (requeued, output) = await Run<IReadThenRoute>(
+            new Order("o-moved", 0m),
+            replayDecisionsOf: original.Metadata!.Id
+        );
+
+        output
+            .Should()
+            .Be(
+                "held for review",
+                $"the decider was asked about the state as it is now. See {Adr}."
+            );
+        decider.Requests.Should().ContainSingle();
+        var asked = (await Recorded(requeued.Metadata!.Id)).Should().ContainSingle().Subject;
+        asked.Replayed.Should().BeFalse();
+        asked.Answer.Should().Contain("replay_refused");
+    }
+
+    [Test]
+    public async Task A_requeue_whose_state_is_unchanged_replays()
+    {
+        StockLevel.Total = 20m;
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+        var (original, _) = await Run<IReadThenRoute>(new Order("o-same", 0m));
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+
+        var (requeued, output) = await Run<IReadThenRoute>(
+            new Order("o-same", 0m),
+            replayDecisionsOf: original.Metadata!.Id
+        );
+
+        output.Should().Be("held for review");
+        decider.Requests.Should().BeEmpty();
+        (await Recorded(requeued.Metadata!.Id))
+            .Should()
+            .ContainSingle()
+            .Which.Replayed.Should()
+            .BeTrue();
+    }
+
+    [Test]
+    public async Task An_answer_recorded_without_a_state_hash_is_asked_afresh()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+        var (original, _) = await Run<IRouteOrder>(new Order("o-old-row", 20m));
+
+        // A row written before the column existed.
+        await Rewrite(original.Metadata!.Id, d => d.StateHash = null);
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+
+        var (requeued, output) = await Run<IRouteOrder>(
+            new Order("o-old-row", 20m),
+            replayDecisionsOf: original.Metadata.Id
+        );
+
+        output.Should().Be("shipped");
+        decider.Requests.Should().ContainSingle();
+        (await Recorded(requeued.Metadata!.Id)).Single().Replayed.Should().BeFalse();
+    }
+
+    [Test]
+    public async Task An_answer_older_than_the_replay_bound_is_asked_afresh()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+        var (original, _) = await Run<IRouteOrder>(new Order("o-aged", 20m));
+        await Rewrite(
+            original.Metadata!.Id,
+            d =>
+                d.DecidedAt =
+                    DateTime.UtcNow
+                    - DecisionRecordingOptions.DefaultMaxReplayAge
+                    - TimeSpan.FromMinutes(1)
+        );
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+
+        var (requeued, output) = await Run<IRouteOrder>(
+            new Order("o-aged", 20m),
+            replayDecisionsOf: original.Metadata.Id
+        );
+
+        output
+            .Should()
+            .Be("shipped", $"an answer older than the bound is not replayed. See {Adr}.");
+        decider.Requests.Should().ContainSingle();
+        (await Recorded(requeued.Metadata!.Id)).Single().Replayed.Should().BeFalse();
+    }
+
+    [Test]
+    public async Task A_replayed_answer_ages_from_when_a_decider_gave_it()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+        var (original, _) = await Run<IRouteOrder>(new Order("o-chain", 20m));
+        var (middle, _) = await Run<IRouteOrder>(
+            new Order("o-chain", 20m),
+            replayDecisionsOf: original.Metadata!.Id
+        );
+        (await Recorded(middle.Metadata!.Id)).Single().Replayed.Should().BeTrue();
+
+        // The original answer is now old; the middle run's replay of it is recent.
+        await Rewrite(
+            original.Metadata.Id,
+            d =>
+                d.DecidedAt =
+                    DateTime.UtcNow
+                    - DecisionRecordingOptions.DefaultMaxReplayAge
+                    - TimeSpan.FromMinutes(1)
+        );
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+
+        var (last, output) = await Run<IRouteOrder>(
+            new Order("o-chain", 20m),
+            replayDecisionsOf: middle.Metadata.Id
+        );
+
+        output.Should().Be("shipped", $"replaying an answer does not make it younger. See {Adr}.");
+        decider.Requests.Should().ContainSingle();
+        (await Recorded(last.Metadata!.Id)).Single().Replayed.Should().BeFalse();
+    }
+
+    [Test]
+    public void The_replay_bound_defaults_to_a_day_and_refuses_less_than_a_second()
+    {
+        DecisionRecordingOptions.DefaultMaxReplayAge.Should().Be(TimeSpan.FromHours(24));
+        var options = (DecisionRecordingOptions)
+            Activator.CreateInstance(typeof(DecisionRecordingOptions), nonPublic: true)!;
+
+        options.MaxReplayAge.Should().Be(TimeSpan.FromHours(24));
+        options
+            .ReplayAnswersFor(TimeSpan.FromHours(2))
+            .MaxReplayAge.Should()
+            .Be(TimeSpan.FromHours(2));
+        var act = () => options.ReplayAnswersFor(TimeSpan.Zero);
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Test]
+    public async Task The_replay_bound_is_configurable()
+    {
+        await using var provider = DecisionTrains
+            .Register(new ServiceCollection(), Decider)
+            .AddTrax(trax =>
+                trax.AddEffects(effects =>
+                    effects
+                        .UseInMemory()
+                        .AddDecisionRecording(o => o.ReplayAnswersFor(TimeSpan.FromHours(1)))
+                )
+            )
+            .BuildServiceProvider();
+
+        provider
+            .GetRequiredService<DecisionJournal>()
+            .Options.MaxReplayAge.Should()
+            .Be(TimeSpan.FromHours(1));
     }
 
     [Test]
@@ -1005,7 +1191,8 @@ internal static class DecisionTrains
             .AddScopedTraxRoute<IMeetThenRoute, MeetThenRoute>()
             .AddScopedTraxRoute<ILoseFlowThenRoute, LoseFlowThenRoute>()
             .AddScopedTraxRoute<IMeetThenLoseFlow, MeetThenLoseFlow>()
-            .AddScopedTraxRoute<IRunAPlainTrainOffFlow, RunAPlainTrainOffFlow>();
+            .AddScopedTraxRoute<IRunAPlainTrainOffFlow, RunAPlainTrainOffFlow>()
+            .AddScopedTraxRoute<IReadThenRoute, ReadThenRoute>();
 }
 
 /// <summary>The registered decider, swapped per test.</summary>
@@ -1469,4 +1656,31 @@ internal static class RecordedRoutes
                 .AsArray()
                 .Select(route => (string)route!["track"]!)
                 .ToList();
+}
+
+/// <summary>What the stock system says the order's total is, read by a junction before deciding.</summary>
+public static class StockLevel
+{
+    public static decimal Total { get; set; }
+}
+
+public class ReadStock : Junction<Order, Order>
+{
+    public override Task<Order> Run(Order input) =>
+        Task.FromResult(input with { Total = StockLevel.Total });
+}
+
+public interface IReadThenRoute : IServiceTrain<Order, string>;
+
+/// <summary>Reads a value that can change between a run and its requeue, then decides on it.</summary>
+public class ReadThenRoute : ServiceTrain<Order, string>, IReadThenRoute
+{
+    protected override Task<Either<Exception, string>> Junctions() =>
+        Chain<ReadStock>()
+            .Switch<Order, Fulfilment>(tracks =>
+                tracks
+                    .When(Fulfilment.Standard, t => t.Chain<Ship>())
+                    .When(Fulfilment.ManualCheck, t => t.Chain<HoldForReview>())
+            )
+            .Resolve();
 }

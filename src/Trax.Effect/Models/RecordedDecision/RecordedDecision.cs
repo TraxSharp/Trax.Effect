@@ -102,6 +102,15 @@ public class RecordedDecision
     [Column("routes")]
     public string? Routes { get; set; }
 
+    /// <summary>
+    /// The SHA-256, as 64 lowercase hex characters, of the state the question was asked about, as
+    /// Trax.Core computed it, or null when the state could not be written as JSON or the row
+    /// predates the column. A replay hands it back, and Trax.Core replays the answer only into a
+    /// state that hashes the same; a null one is never replayed.
+    /// </summary>
+    [Column("state_hash")]
+    public string? StateHash { get; set; }
+
     /// <summary>When the question was answered.</summary>
     [Column("decided_at")]
     public DateTime DecidedAt { get; set; }

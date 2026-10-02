@@ -49,6 +49,9 @@ public sealed class DecisionJournal(
     ILogger<DecisionJournal>? logger = null
 ) : IDecisionObserver, IDecisionReplay, IDecisionRunRecorder
 {
+    /// <summary>How long a recorded answer is replayed for; set by <c>AddDecisionRecording</c>.</summary>
+    internal DecisionRecordingOptions Options { get; init; } = new();
+
     // Optional, so a host that registers no logging still records decisions instead of failing
     // every run that makes one.
     private readonly ILogger _logger = logger ?? NullLogger<DecisionJournal>.Instance;
@@ -211,6 +214,7 @@ public sealed class DecisionJournal(
             Model = decision.Answer.Model,
             Decider = decision.Decider?.FullName,
             Replayed = decision.Replayed,
+            StateHash = decision.StateHash,
             Shadows = DecisionJson.Write(decision.Shadows),
             DecidedAt = DateTime.UtcNow,
         };
@@ -321,6 +325,27 @@ public sealed class DecisionJournal(
         return run;
     }
 
+    /// <summary>One recorded answer a replay may use.</summary>
+    private sealed record Recorded(
+        long MetadataId,
+        string Key,
+        int Occurrence,
+        string Fingerprint,
+        string? Answer,
+        string? StateHash,
+        bool Replayed,
+        DateTime DecidedAt
+    );
+
+    /// <summary>
+    /// When a decider gave the answer the nearest run acted on: that row's time when it was asked
+    /// afresh, otherwise the time of the nearest row further back that was. A replay takes the
+    /// nearest answer in its chain, so the next row back for the same asking is the one a replayed
+    /// row repeated. Null when the chain ends before reaching one.
+    /// </summary>
+    private static DateTime? AnsweredAt(IEnumerable<Recorded> nearestFirst) =>
+        nearestFirst.FirstOrDefault(row => !row.Replayed)?.DecidedAt;
+
     /// <summary>The run whose replay is loaded, and the run it names.</summary>
     private sealed record Replaying(long Id, string Name, string ExternalId, long Source);
 
@@ -344,13 +369,7 @@ public sealed class DecisionJournal(
 
         var chain = new List<long>();
         string? broken = null;
-        List<(
-            long MetadataId,
-            string Key,
-            int Occurrence,
-            string Fingerprint,
-            string? Answer
-        )> recorded;
+        List<Recorded> recorded;
 
         try
         {
@@ -432,9 +451,12 @@ public sealed class DecisionJournal(
                             d.Occurrence,
                             d.Fingerprint,
                             d.Answer,
+                            d.StateHash,
+                            d.Replayed,
+                            d.DecidedAt,
                         })
                         .ToListAsync(cancellationToken)
-                ).Select(d => (d.MetadataId, d.QuestionKey, d.Occurrence, d.Fingerprint, d.Answer)).ToList();
+                ).Select(d => new Recorded(d.MetadataId, d.QuestionKey, d.Occurrence, d.Fingerprint, d.Answer, d.StateHash, d.Replayed, d.DecidedAt)).ToList();
         }
         catch (Exception e)
             when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
@@ -456,16 +478,36 @@ public sealed class DecisionJournal(
         var answers = new Dictionary<(string, int), RecordedAnswer>();
         var nearestFirst = chain.Select((id, depth) => (id, depth)).ToDictionary();
 
+        var byAsking = recorded
+            .OrderBy(d => nearestFirst[d.MetadataId])
+            .GroupBy(d => (d.Key, d.Occurrence))
+            .ToList();
+        var oldest = DateTime.UtcNow - Options.MaxReplayAge;
+
         // The nearer run's answer wins: it is what that run acted on, whether it replayed it or
         // was answered afresh because the older one no longer fitted.
-        foreach (
-            var (runId, key, occurrence, fingerprint, answer) in recorded.OrderBy(d =>
-                nearestFirst[d.MetadataId]
-            )
-        )
+        foreach (var asking in byAsking)
         {
-            if (answers.ContainsKey((key, occurrence)))
+            var nearest = asking.First();
+            var (runId, key, occurrence, fingerprint, answer, stateHash, _, _) = nearest;
+
+            // Its age is that of the answer a decider gave, not of a later run replaying it, so a
+            // chain of requeues cannot keep an answer alive. One whose answering run is gone is
+            // as old as can be.
+            if (AnsweredAt(asking) is not { } answeredAt || answeredAt < oldest)
+            {
+                _logger.LogInformation(
+                    "Run {RunId} asks '{Question}' (occurrence {Occurrence}) afresh instead of "
+                        + "replaying the answer run {Source} acted on: it was given longer ago "
+                        + "than answers are replayed for ({MaxReplayAge}).",
+                    metadata.ExternalId,
+                    key,
+                    occurrence,
+                    runId,
+                    Options.MaxReplayAge
+                );
                 continue;
+            }
 
             try
             {
@@ -473,7 +515,10 @@ public sealed class DecisionJournal(
                     // A row with neither an answer nor a refusal is damaged, and read as such.
                     DecisionJson.ReadAnswer(answer ?? "null"),
                     fingerprint
-                );
+                )
+                {
+                    StateHash = stateHash,
+                };
             }
             catch (JsonException e)
             {

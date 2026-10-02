@@ -109,6 +109,12 @@ public static class ServiceExtensions
     /// permanent, when a run in that chain does not exist, belongs to another train, or ran
     /// without recording its decisions. Calling this more than once registers it once.
     ///
+    /// <para>A requeued run replays the recorded answers only into the same state (Trax.Core
+    /// compares the hash the journal stores with each answer, and asks afresh when it differs or
+    /// was never recorded) and only while they are younger than <c>ReplayAnswersFor</c>, 24 hours
+    /// by default, measured from when a decider gave them. An answer outside either is asked
+    /// afresh.</para>
+    ///
     /// <para>The journal is told about each decision alongside every other
     /// <see cref="IDecisionObserver"/>: one the host registered before this call, and the one
     /// <c>AddJunctionEvents</c> adds. It is told first, because the decision is not acted on unless it
@@ -117,11 +123,39 @@ public static class ServiceExtensions
     /// </remarks>
     public static TraxEffectBuilderWithData AddDecisionRecording(
         this TraxEffectBuilderWithData configurationBuilder
+    ) => configurationBuilder.AddDecisionRecording(_ => { });
+
+    /// <inheritdoc cref="AddDecisionRecording(TraxEffectBuilderWithData)"/>
+    /// <param name="configurationBuilder">The effect builder, after a data provider.</param>
+    /// <param name="configure">
+    /// Sets how long a recorded answer is replayed for (<c>ReplayAnswersFor</c>, 24 hours by
+    /// default). Called again, it changes the same options.
+    /// </param>
+    public static TraxEffectBuilderWithData AddDecisionRecording(
+        this TraxEffectBuilderWithData configurationBuilder,
+        Action<DecisionRecordingOptions> configure
     )
     {
+        ArgumentNullException.ThrowIfNull(configure);
         var services = configurationBuilder.ServiceCollection;
 
-        services.TryAddSingleton<DecisionJournal>();
+        var options =
+            services
+                .Select(d => d.ImplementationInstance)
+                .OfType<DecisionRecordingOptions>()
+                .FirstOrDefault()
+            ?? new DecisionRecordingOptions();
+        if (!services.Any(d => d.ImplementationInstance == options))
+            services.AddSingleton(options);
+        configure(options);
+
+        services.TryAddSingleton(sp => new DecisionJournal(
+            sp.GetRequiredService<Services.IDataContextFactory.IDataContextProviderFactory>(),
+            sp.GetService<ILogger<DecisionJournal>>()
+        )
+        {
+            Options = sp.GetRequiredService<DecisionRecordingOptions>(),
+        });
         // Beside any other observer (a host's own, junction events), never in place of one.
         DecisionObservers.Add(
             services,

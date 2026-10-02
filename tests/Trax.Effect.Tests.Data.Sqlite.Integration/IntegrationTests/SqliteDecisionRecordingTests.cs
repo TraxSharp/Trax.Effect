@@ -76,6 +76,8 @@ public class SqliteDecisionRecordingTests
         row.QuestionKey.Should().Be(QuestionKey.For<LiteFulfilment>());
         row.Occurrence.Should().Be(0);
         row.Fingerprint.Should().MatchRegex("^[0-9a-f]{64}$");
+        row.StateHash.Should()
+            .MatchRegex("^[0-9a-f]{64}$", "the hash of the state is stored with the answer");
         row.Kind.Should().Be("choice");
         row.Answer.Should().Contain("\"choice\":\"ManualCheck\"");
         row.Replayed.Should().BeFalse();
