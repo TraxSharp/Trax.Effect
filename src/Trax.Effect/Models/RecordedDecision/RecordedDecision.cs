@@ -47,6 +47,15 @@ public class RecordedDecision
     [Column("answer")]
     public string Answer { get; set; } = null!;
 
+    /// <summary>
+    /// Identifies the asking the answer was given to, as Trax.Core computed it: 64 lowercase hex
+    /// characters over the step, the state's type and the question's declaration. Handed back with
+    /// the answer on replay, and an answer whose fingerprint differs from the asking it would be
+    /// replayed into is not acted on.
+    /// </summary>
+    [Column("fingerprint")]
+    public string Fingerprint { get; set; } = null!;
+
     /// <summary>The model and version that answered, or null for a decider that is not a model.</summary>
     [Column("model")]
     public string? Model { get; set; }

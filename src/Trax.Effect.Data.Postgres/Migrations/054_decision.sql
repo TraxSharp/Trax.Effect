@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS trax.decision (
     metadata_id bigint NOT NULL REFERENCES trax.metadata (id) ON DELETE CASCADE,
     question_key text NOT NULL,
     occurrence integer NOT NULL,
+    fingerprint text NOT NULL,
     kind text NOT NULL,
     question jsonb NOT NULL,
     answer jsonb NOT NULL,

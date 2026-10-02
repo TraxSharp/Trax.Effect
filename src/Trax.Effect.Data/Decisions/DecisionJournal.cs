@@ -40,8 +40,8 @@ public sealed class DecisionJournal(
     // every run that makes one.
     private readonly ILogger _logger = logger ?? NullLogger<DecisionJournal>.Instance;
 
-    private static readonly IReadOnlyDictionary<(string, int), Answer> NothingToReplay =
-        new Dictionary<(string, int), Answer>();
+    private static readonly IReadOnlyDictionary<(string, int), RecordedAnswer> NothingToReplay =
+        new Dictionary<(string, int), RecordedAnswer>();
 
     /// <summary>
     /// True: a requeue replays what was written, so a decision that could not be written must not
@@ -74,6 +74,7 @@ public sealed class DecisionJournal(
             MetadataId = metadataId,
             QuestionKey = decision.Question.Key,
             Occurrence = decision.Occurrence,
+            Fingerprint = decision.Fingerprint,
             Kind = DecisionJson.Kind(decision.Question),
             Question = DecisionJson.Write(decision.Question),
             Answer = DecisionJson.Write(decision.Answer, decision.ReplayRefused),
@@ -140,8 +141,17 @@ public sealed class DecisionJournal(
     }
 
     /// <inheritdoc />
-    public Answer? Replay(string train, string runId, string key, int occurrence) =>
-        Bound(runId)?.Replay.GetValueOrDefault((key, occurrence));
+    /// <remarks>
+    /// Answered from what <c>ServiceTrain.Run</c> loaded before the run's first junction, so it
+    /// never goes to the database on the train's path.
+    /// </remarks>
+    public Task<RecordedAnswer?> Replay(
+        string train,
+        string runId,
+        string key,
+        int occurrence,
+        CancellationToken cancellationToken
+    ) => Task.FromResult(Bound(runId)?.Replay.GetValueOrDefault((key, occurrence)));
 
     /// <summary>
     /// Binds the run to its row and loads the answers of the run it replays. A run that names one
@@ -163,14 +173,14 @@ public sealed class DecisionJournal(
         return new DecisionRun(metadata.ExternalId, metadataId, replay);
     }
 
-    private async Task<IReadOnlyDictionary<(string, int), Answer>> LoadReplay(
+    private async Task<IReadOnlyDictionary<(string, int), RecordedAnswer>> LoadReplay(
         Metadata metadata,
         long source,
         CancellationToken cancellationToken
     )
     {
         bool exists;
-        List<(string QuestionKey, int Occurrence, string Answer)> recorded;
+        List<(string QuestionKey, int Occurrence, string Fingerprint, string Answer)> recorded;
 
         try
         {
@@ -188,10 +198,11 @@ public sealed class DecisionJournal(
                         {
                             d.QuestionKey,
                             d.Occurrence,
+                            d.Fingerprint,
                             d.Answer,
                         })
                         .ToListAsync(cancellationToken)
-                ).Select(d => (d.QuestionKey, d.Occurrence, d.Answer)).ToList() : [];
+                ).Select(d => (d.QuestionKey, d.Occurrence, d.Fingerprint, d.Answer)).ToList() : [];
         }
         catch (Exception e)
             when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
@@ -210,13 +221,16 @@ public sealed class DecisionJournal(
         if (!exists)
             throw DecisionRun.Unreplayable(metadata, $"no run {source} exists");
 
-        var answers = new Dictionary<(string, int), Answer>();
+        var answers = new Dictionary<(string, int), RecordedAnswer>();
 
-        foreach (var (key, occurrence, answer) in recorded)
+        foreach (var (key, occurrence, fingerprint, answer) in recorded)
         {
             try
             {
-                answers[(key, occurrence)] = DecisionJson.ReadAnswer(answer);
+                answers[(key, occurrence)] = new RecordedAnswer(
+                    DecisionJson.ReadAnswer(answer),
+                    fingerprint
+                );
             }
             catch (Exception e) when (e is JsonException or InvalidOperationException)
             {

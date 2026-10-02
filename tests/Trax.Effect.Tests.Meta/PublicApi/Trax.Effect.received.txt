@@ -827,6 +827,8 @@ namespace Trax.Effect.Models.RecordedDecision
         public string? Decider { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("fallback_reason")]
         public string? FallbackReason { get; set; }
+        [System.ComponentModel.DataAnnotations.Schema.Column("fingerprint")]
+        public string Fingerprint { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("id")]
         public long Id { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("kind")]

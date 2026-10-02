@@ -5,7 +5,7 @@ namespace Trax.Effect.Data.Decisions
         public DecisionJournal(Trax.Effect.Data.Services.IDataContextFactory.IDataContextProviderFactory contextFactory, Microsoft.Extensions.Logging.ILogger<Trax.Effect.Data.Decisions.DecisionJournal>? logger = null) { }
         public bool Required { get; }
         public System.Threading.Tasks.Task Decided(Trax.Core.Decisions.DecisionMade decision, System.Threading.CancellationToken cancellationToken) { }
-        public Trax.Core.Decisions.Answer? Replay(string train, string runId, string key, int occurrence) { }
+        public System.Threading.Tasks.Task<Trax.Core.Decisions.RecordedAnswer?> Replay(string train, string runId, string key, int occurrence, System.Threading.CancellationToken cancellationToken) { }
         public System.Threading.Tasks.Task Routed(Trax.Core.Decisions.TrackRouted routing, System.Threading.CancellationToken cancellationToken) { }
     }
 }

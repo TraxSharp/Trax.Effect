@@ -74,6 +74,7 @@ public class SqliteDecisionRecordingTests
         var row = (await Recorded(train.Metadata.Id)).Should().ContainSingle().Subject;
         row.QuestionKey.Should().Be(QuestionKey.For<LiteFulfilment>());
         row.Occurrence.Should().Be(0);
+        row.Fingerprint.Should().MatchRegex("^[0-9a-f]{64}$");
         row.Kind.Should().Be("choice");
         row.Answer.Should().Contain("\"choice\":\"ManualCheck\"");
         row.Replayed.Should().BeFalse();

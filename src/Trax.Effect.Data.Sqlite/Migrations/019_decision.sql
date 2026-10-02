@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS decision (
     metadata_id INTEGER NOT NULL REFERENCES metadata (id) ON DELETE CASCADE,
     question_key TEXT NOT NULL,
     occurrence INTEGER NOT NULL,
+    fingerprint TEXT NOT NULL,
     kind TEXT NOT NULL,
     question TEXT NOT NULL,
     answer TEXT NOT NULL,

@@ -31,7 +31,7 @@ internal interface IDecisionRunRecorder
 internal sealed class DecisionRun(
     string runId,
     long? metadataId,
-    IReadOnlyDictionary<(string Key, int Occurrence), Answer> replay
+    IReadOnlyDictionary<(string Key, int Occurrence), RecordedAnswer> replay
 )
 {
     private static readonly AsyncLocal<DecisionRun?> CurrentRun = new();
@@ -49,8 +49,12 @@ internal sealed class DecisionRun(
     /// <summary>The run's row, or null when it was never persisted and its decisions are only logged.</summary>
     public long? MetadataId { get; } = metadataId;
 
-    /// <summary>The answers of the run this one repeats, keyed as Trax.Core asks for them.</summary>
-    public IReadOnlyDictionary<(string Key, int Occurrence), Answer> Replay { get; } = replay;
+    /// <summary>
+    /// The answers of the run this one repeats, each with the fingerprint it was recorded under,
+    /// keyed as Trax.Core asks for them.
+    /// </summary>
+    public IReadOnlyDictionary<(string Key, int Occurrence), RecordedAnswer> Replay { get; } =
+        replay;
 
     /// <summary>The id of the row written for each question's latest asking, for its routing.</summary>
     public ConcurrentDictionary<string, long> Latest { get; } = new();

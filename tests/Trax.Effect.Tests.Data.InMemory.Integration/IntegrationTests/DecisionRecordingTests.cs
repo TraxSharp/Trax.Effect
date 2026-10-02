@@ -144,6 +144,46 @@ public class DecisionRecordingTests
     }
 
     [Test]
+    public async Task A_decision_is_recorded_with_the_fingerprint_of_its_asking()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+        var (original, _) = await Run<IRouteOrder>(new Order("o-print", 20m));
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+        var (again, _) = await Run<IRouteOrder>(new Order("o-print-again", 99m));
+
+        var first = (await Recorded(original.Metadata!.Id)).Should().ContainSingle().Subject;
+        var second = (await Recorded(again.Metadata!.Id)).Should().ContainSingle().Subject;
+
+        first.Fingerprint.Should().MatchRegex("^[0-9a-f]{64}$");
+        second
+            .Fingerprint.Should()
+            .Be(first.Fingerprint, "the same step asks the same question; the state never counts");
+    }
+
+    [Test]
+    public async Task A_recorded_answer_whose_fingerprint_differs_is_not_replayed()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+        var (original, _) = await Run<IRouteOrder>(new Order("o-stale", 20m));
+
+        // As if the question had been reworded since: the stored fingerprint is what comes back.
+        await Rewrite(original.Metadata!.Id, d => d.Fingerprint = new string('0', 64));
+
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+
+        var (requeued, output) = await Run<IRouteOrder>(
+            new Order("o-stale", 20m),
+            replayDecisionsOf: original.Metadata.Id
+        );
+
+        output.Should().Be("shipped", "the decider was asked afresh");
+        decider.Requests.Should().ContainSingle();
+        var asked = (await Recorded(requeued.Metadata!.Id)).Should().ContainSingle().Subject;
+        asked.Replayed.Should().BeFalse();
+        asked.Answer.Should().Contain("replay_refused");
+    }
+
+    [Test]
     public async Task Each_asking_of_a_question_is_recorded_and_replayed_by_its_occurrence()
     {
         Decider.Use(new SequenceDecider(Fulfilment.ManualCheck, Fulfilment.Standard));
@@ -358,6 +398,20 @@ public class DecisionRecordingTests
     }
 
     private static string Id() => Guid.NewGuid().ToString("N");
+
+    private async Task Rewrite(
+        long metadataId,
+        Action<Models.RecordedDecision.RecordedDecision> change
+    )
+    {
+        using var scope = _provider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<IDataContext>();
+
+        foreach (var decision in context.RecordedDecisions.Where(d => d.MetadataId == metadataId))
+            change(decision);
+
+        await context.SaveChanges(CancellationToken.None);
+    }
 
     private async Task<List<Models.RecordedDecision.RecordedDecision>> Recorded(long metadataId)
     {
