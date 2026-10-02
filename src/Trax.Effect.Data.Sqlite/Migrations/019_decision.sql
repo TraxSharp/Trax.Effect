@@ -12,8 +12,7 @@ CREATE TABLE IF NOT EXISTS decision (
     decider TEXT,
     replayed INTEGER NOT NULL DEFAULT 0,
     shadows TEXT,
-    track TEXT,
-    fallback_reason TEXT,
+    routes TEXT,
     decided_at TEXT NOT NULL,
     UNIQUE (metadata_id, question_key, occurrence)
 );

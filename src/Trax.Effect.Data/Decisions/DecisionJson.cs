@@ -69,6 +69,21 @@ internal static class DecisionJson
         return node.ToJsonString();
     }
 
+    /// <summary>
+    /// The routings stored on a decision with one more added after them: a JSON array of
+    /// <c>{"track", "fallback_reason"}</c> in the order the steps took them.
+    /// </summary>
+    public static string AddRoute(string? routes, string track, string? fallbackReason)
+    {
+        var array = routes is null
+            ? new JsonArray()
+            : JsonNode.Parse(routes) as JsonArray
+                ?? throw new JsonException("A decision's routes are not a JSON array.");
+
+        array.Add(new JsonObject { ["track"] = track, ["fallback_reason"] = fallbackReason });
+        return array.ToJsonString();
+    }
+
     public static string? Write(IReadOnlyList<ShadowAnswer> shadows) =>
         shadows.Count == 0 ? null : new JsonArray(shadows.Select(Shadow).ToArray()).ToJsonString();
 

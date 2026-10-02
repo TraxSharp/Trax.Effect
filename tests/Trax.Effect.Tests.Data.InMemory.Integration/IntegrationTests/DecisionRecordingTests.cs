@@ -66,8 +66,8 @@ public class DecisionRecordingTests
         decision.Model.Should().Be("jev-1.13.0");
         decision.Decider.Should().Be(typeof(DeciderSlot).FullName);
         decision.Replayed.Should().BeFalse();
-        decision.Track.Should().Be("Standard");
-        decision.FallbackReason.Should().BeNull();
+        decision.Tracks().Should().Equal("Standard");
+        decision.Routes.Should().Contain("\"fallback_reason\":null");
         decision.Answer.Should().Contain("\"choice\":\"Standard\"");
         decision.Question.Should().Contain("How should this order be fulfilled?");
         decider.Requests.Should().ContainSingle();
@@ -82,8 +82,21 @@ public class DecisionRecordingTests
 
         output.Should().Be("held for review");
         var decision = (await Recorded(train.Metadata!.Id)).Should().ContainSingle().Subject;
-        decision.Track.Should().Be("Otherwise");
-        decision.FallbackReason.Should().Contain("confidence of 0.4");
+        decision.Tracks().Should().Equal("Otherwise");
+        decision.Routes.Should().Contain("confidence of 0.4");
+    }
+
+    [Test]
+    public async Task Every_track_taken_on_one_decision_is_recorded()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard, 0.9));
+
+        var (train, output) = await Run<IDecideThenSwitchTwice>(new Order("o-two-routes", 20m));
+
+        output.Should().Be("held for review", "the second switch wants more confidence");
+        var decision = (await Recorded(train.Metadata!.Id)).Should().ContainSingle().Subject;
+        decision.Tracks().Should().Equal("Standard", "Otherwise");
+        decision.Routes.Should().Contain("confidence of 0.9");
     }
 
     [Test]
@@ -116,8 +129,9 @@ public class DecisionRecordingTests
         (await Recorded(train.Metadata!.Id))
             .Should()
             .ContainSingle()
-            .Which.Track.Should()
-            .Be("ManualCheck");
+            .Which.Tracks()
+            .Should()
+            .Equal("ManualCheck");
     }
 
     [Test]
@@ -140,7 +154,7 @@ public class DecisionRecordingTests
         var replayed = (await Recorded(requeued.Metadata!.Id)).Should().ContainSingle().Subject;
         replayed.Replayed.Should().BeTrue();
         replayed.Decider.Should().BeNull();
-        replayed.Track.Should().Be("ManualCheck");
+        replayed.Tracks().Should().Equal("ManualCheck");
     }
 
     [Test]
@@ -192,7 +206,7 @@ public class DecisionRecordingTests
 
         var recorded = (await Recorded(original.Metadata!.Id)).OrderBy(d => d.Occurrence).ToList();
         recorded.Select(d => d.Occurrence).Should().Equal(0, 1);
-        recorded.Select(d => d.Track).Should().Equal("ManualCheck", "Standard");
+        recorded.Select(d => d.Tracks().Single()).Should().Equal("ManualCheck", "Standard");
 
         // Asked now, both askings would be answered the other way round.
         var decider = Decider.Use(new SequenceDecider(Fulfilment.Standard, Fulfilment.ManualCheck));
@@ -206,7 +220,7 @@ public class DecisionRecordingTests
         decider.Asked.Should().Be(0);
         (await Recorded(requeued.Metadata!.Id))
             .OrderBy(d => d.Occurrence)
-            .Select(d => (d.Occurrence, d.Track, d.Replayed))
+            .Select(d => (d.Occurrence, d.Tracks().Single(), d.Replayed))
             .Should()
             .Equal((0, "ManualCheck", true), (1, "Standard", true));
     }
@@ -302,7 +316,7 @@ public class DecisionRecordingTests
         decider.Asked.Should().Be(0);
         (await Recorded(requeued.Metadata!.Id))
             .OrderBy(d => d.Occurrence)
-            .Select(d => (d.Occurrence, d.Track, d.Replayed))
+            .Select(d => (d.Occurrence, d.Tracks().Single(), d.Replayed))
             .Should()
             .Equal((0, "Standard", true), (1, "ManualCheck", true));
     }
@@ -465,7 +479,7 @@ public class DecisionRecordingTests
 
         output.Should().Be("shipped");
         var decision = (await Recorded(train.Metadata!.Id)).Should().ContainSingle().Subject;
-        decision.Track.Should().Be("Standard");
+        decision.Tracks().Should().Equal("Standard");
         decision.Shadows.Should().Contain(typeof(NonFiniteShadow).FullName);
         decision.Shadows.Should().Contain("\"confidence\":\"NaN\"");
         decision.Shadows.Should().Contain("\"Standard\":\"Infinity\"");
@@ -540,11 +554,11 @@ public class DecisionRecordingTests
 
         var replayed = (await Recorded(replaying.Metadata.Id)).Should().ContainSingle().Subject;
         replayed.Replayed.Should().BeTrue();
-        replayed.Track.Should().Be("ManualCheck");
+        replayed.Tracks().Should().Equal("ManualCheck");
 
         var asked = (await Recorded(asking.Metadata.Id)).Should().ContainSingle().Subject;
         asked.Replayed.Should().BeFalse();
-        asked.Track.Should().Be("Standard");
+        asked.Tracks().Should().Equal("Standard");
     }
 
     [Test]
@@ -817,6 +831,7 @@ internal static class DecisionTrains
             .AddScopedTraxRoute<IRouteTwice, RouteTwice>()
             .AddScopedTraxRoute<IRouteWithShadow, RouteWithShadow>()
             .AddScopedTraxRoute<IRenameThenRoute, RenameThenRoute>()
+            .AddScopedTraxRoute<IDecideThenSwitchTwice, DecideThenSwitchTwice>()
             .AddSingleton<OddShadow>()
             .AddScopedTraxRoute<IRouteWithOddShadow, RouteWithOddShadow>()
             .AddScopedTraxRoute<IMeetThenRoute, MeetThenRoute>();
@@ -925,6 +940,28 @@ public class RouteOrder : ServiceTrain<Order, string>, IRouteOrder
                     .When(Fulfilment.Standard, t => t.Chain<Ship>())
                     .When(Fulfilment.ManualCheck, t => t.Chain<HoldForReview>())
                     .RequireConfidence(0.8)
+                    .Otherwise(t => t.Chain<HoldForReview>())
+            )
+            .Resolve();
+}
+
+public interface IDecideThenSwitchTwice : IServiceTrain<Order, string>;
+
+/// <summary>Decides once and routes on the decision twice, with different bars.</summary>
+public class DecideThenSwitchTwice : ServiceTrain<Order, string>, IDecideThenSwitchTwice
+{
+    protected override Task<Either<Exception, string>> Junctions() =>
+        Decide<Order>(q => q.Choice<Fulfilment>())
+            .Switch<Fulfilment>(tracks =>
+                tracks
+                    .When(Fulfilment.Standard, t => t.Chain<Ship>())
+                    .When(Fulfilment.ManualCheck, t => t.Chain<HoldForReview>())
+            )
+            .Switch<Fulfilment>(tracks =>
+                tracks
+                    .When(Fulfilment.Standard, t => t.Chain<Ship>())
+                    .When(Fulfilment.ManualCheck, t => t.Chain<HoldForReview>())
+                    .RequireConfidence(0.95)
                     .Otherwise(t => t.Chain<HoldForReview>())
             )
             .Resolve();
@@ -1094,8 +1131,23 @@ public class PeekDecisions(IDataContextProviderFactory factory) : EffectJunction
                 .Where(d => d.MetadataId == id)
                 .ToListAsync()
         )
-            Seen.Add((decision.MetadataId, state, decision.Track));
+            Seen.Add((decision.MetadataId, state, decision.Tracks().SingleOrDefault()));
 
         return input;
     }
+}
+
+/// <summary>Reads the tracks out of a recorded decision's routes.</summary>
+internal static class RecordedRoutes
+{
+    public static IReadOnlyList<string> Tracks(
+        this Models.RecordedDecision.RecordedDecision decision
+    ) =>
+        decision.Routes is null
+            ? []
+            : System
+                .Text.Json.Nodes.JsonNode.Parse(decision.Routes)!
+                .AsArray()
+                .Select(route => (string)route!["track"]!)
+                .ToList();
 }

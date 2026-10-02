@@ -75,7 +75,7 @@ public class PostgresDecisionRecordingTests
         row.Kind.Should().Be("choice");
         row.Answer.Should().Contain("\"choice\": \"ManualCheck\"", "jsonb normalises the spacing");
         row.Replayed.Should().BeFalse();
-        row.Track.Should().Be("ManualCheck");
+        row.Tracks().Should().Equal("ManualCheck");
         (await RunRow(train.Metadata.Id)).DecisionsRecorded.Should().BeTrue();
 
         await Delete(train.Metadata.Id);
@@ -108,7 +108,7 @@ public class PostgresDecisionRecordingTests
         Decider.Asked.Should().Be(0);
         var replayed = (await Recorded(requeued.Metadata!.Id)).Should().ContainSingle().Subject;
         replayed.Replayed.Should().BeTrue();
-        replayed.Track.Should().Be("ManualCheck");
+        replayed.Tracks().Should().Equal("ManualCheck");
 
         await Delete(original.Metadata.Id, requeued.Metadata.Id);
     }
@@ -276,9 +276,24 @@ public class PostgresDecisionRecordingTests
                     .Where(d => d.MetadataId == id)
                     .ToListAsync()
             )
-                Seen.Add((row.MetadataId, state, row.Track));
+                Seen.Add((row.MetadataId, state, row.Tracks().SingleOrDefault()));
 
             return input;
         }
     }
+}
+
+/// <summary>Reads the tracks out of a recorded decision's routes.</summary>
+internal static class RecordedRoutes
+{
+    public static IReadOnlyList<string> Tracks(
+        this Models.RecordedDecision.RecordedDecision decision
+    ) =>
+        decision.Routes is null
+            ? []
+            : System
+                .Text.Json.Nodes.JsonNode.Parse(decision.Routes)!
+                .AsArray()
+                .Select(route => (string)route!["track"]!)
+                .ToList();
 }

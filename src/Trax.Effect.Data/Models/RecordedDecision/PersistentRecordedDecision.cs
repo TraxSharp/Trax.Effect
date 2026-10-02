@@ -38,6 +38,7 @@ public class PersistentRecordedDecision : BaseModel
             entity.Property(e => e.Question).HasColumnType("jsonb");
             entity.Property(e => e.Answer).HasColumnType("jsonb");
             entity.Property(e => e.Shadows).HasColumnType("jsonb");
+            entity.Property(e => e.Routes).HasColumnType("jsonb");
         });
     }
 }

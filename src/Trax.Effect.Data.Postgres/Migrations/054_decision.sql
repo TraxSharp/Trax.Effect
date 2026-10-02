@@ -2,7 +2,8 @@
 -- rule table, a cascade of both), the answer it acted on, and the track it took. Written by
 -- AddDecisionRecording as each decision is made, before the run acts on it, and read back to replay
 -- a requeued run's decisions so it takes the tracks the original took instead of asking again. The model is
--- Trax.Effect.Models.RecordedDecision, on IDataContext.RecordedDecisions.
+-- Trax.Effect.Models.RecordedDecision, on IDataContext.RecordedDecisions. routes holds every track a
+-- routing step took on the decision, in order, since more than one step can route on one decision.
 --
 -- A decision belongs to its run and goes with it: the cascade keeps every existing delete of
 -- metadata (cleanup, manifest pruning) working without knowing this table exists.
@@ -19,8 +20,7 @@ CREATE TABLE IF NOT EXISTS trax.decision (
     decider text,
     replayed boolean NOT NULL DEFAULT false,
     shadows jsonb,
-    track text,
-    fallback_reason text,
+    routes jsonb,
     decided_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT uq_decision_run_question UNIQUE (metadata_id, question_key, occurrence)
 );

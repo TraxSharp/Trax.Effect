@@ -4,12 +4,12 @@ namespace Trax.Effect.Models.RecordedDecision;
 
 /// <summary>
 /// Base model for <c>trax.decision</c>: one question a train asked a decider during a run, the
-/// answer it acted on, and the track it took.
+/// answer it acted on, and the tracks taken on it.
 /// </summary>
 /// <remarks>
 /// Written by <c>AddDecisionRecording</c> as each decision is made, before the run acts on it, so
-/// a run that dies mid-way leaves what it decided; the track is added when a routing step takes
-/// one. Read back to replay a run's decisions when it is requeued. EF Core mapping lives in
+/// a run that dies mid-way leaves what it decided; each track is added to <see cref="Routes"/> when
+/// a routing step takes one. Read back to replay a run's decisions when it is requeued. EF Core mapping lives in
 /// <c>Trax.Effect.Data.Models.RecordedDecision.PersistentRecordedDecision</c>; the table
 /// ships in the core migration set (Postgres <c>054</c>, Sqlite <c>019</c>) and is deleted with
 /// its run.
@@ -72,13 +72,18 @@ public class RecordedDecision
     [Column("shadows")]
     public string? Shadows { get; set; }
 
-    /// <summary>The track a routing step took on this decision, or null when nothing routed on it.</summary>
-    [Column("track")]
-    public string? Track { get; set; }
-
-    /// <summary>Why the decision was not followed, or null when it was.</summary>
-    [Column("fallback_reason")]
-    public string? FallbackReason { get; set; }
+    /// <summary>
+    /// The tracks routing steps took on this decision, in the order they took them, as a JSON
+    /// array of <c>{"track": ..., "fallback_reason": ...}</c>, or null when nothing routed on it.
+    /// </summary>
+    /// <remarks>
+    /// More than one step can route on one decision (a <c>Decide</c> followed by two
+    /// <c>Switch</c> steps on the same choice), so each routing is kept rather than the last one
+    /// replacing the first. <c>fallback_reason</c> says why the decision was not followed, and is
+    /// null when it was.
+    /// </remarks>
+    [Column("routes")]
+    public string? Routes { get; set; }
 
     /// <summary>When the question was answered.</summary>
     [Column("decided_at")]

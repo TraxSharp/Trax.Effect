@@ -829,8 +829,6 @@ namespace Trax.Effect.Models.RecordedDecision
         public System.DateTime DecidedAt { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("decider")]
         public string? Decider { get; set; }
-        [System.ComponentModel.DataAnnotations.Schema.Column("fallback_reason")]
-        public string? FallbackReason { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("fingerprint")]
         public string Fingerprint { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("id")]
@@ -849,10 +847,10 @@ namespace Trax.Effect.Models.RecordedDecision
         public string QuestionKey { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("replayed")]
         public bool Replayed { get; set; }
+        [System.ComponentModel.DataAnnotations.Schema.Column("routes")]
+        public string? Routes { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("shadows")]
         public string? Shadows { get; set; }
-        [System.ComponentModel.DataAnnotations.Schema.Column("track")]
-        public string? Track { get; set; }
     }
 }
 namespace Trax.Effect.Models.RunnerNonce

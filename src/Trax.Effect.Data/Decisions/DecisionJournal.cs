@@ -141,7 +141,7 @@ public sealed class DecisionJournal(
             routing.FallbackReason is null ? "" : $" because {routing.FallbackReason}"
         );
 
-        // The routing is written onto the row of the latest decision it routes on.
+        // The routing is added to the row of the latest decision it routes on.
         if (
             Bound(routing.Train, routing.RunId) is not { MetadataId: not null } run
             || !run.Latest.TryGetValue(QuestionKey.For(routing.On), out var recordId)
@@ -162,8 +162,12 @@ public sealed class DecisionJournal(
                 if (record is null)
                     return;
 
-                record.Track = routing.Track;
-                record.FallbackReason = routing.FallbackReason;
+                // Added to what earlier steps routed on the same decision, never in place of it.
+                record.Routes = DecisionJson.AddRoute(
+                    record.Routes,
+                    routing.Track,
+                    routing.FallbackReason
+                );
                 await context.SaveChanges(cancellationToken);
             },
             cancellationToken
