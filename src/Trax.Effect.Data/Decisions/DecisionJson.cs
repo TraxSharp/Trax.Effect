@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Trax.Core.Decisions;
@@ -8,6 +9,13 @@ namespace Trax.Effect.Data.Decisions;
 /// The stored form of questions and answers in <c>trax.decision</c>: plain JSON with a
 /// <c>type</c> discriminator, readable in SQL and independent of .NET type names.
 /// </summary>
+/// <remarks>
+/// JSON has no NaN or infinity, and a shadow's answer is never checked the way the live one is, so
+/// a number that is not finite is written as the string <c>"NaN"</c>, <c>"Infinity"</c> or
+/// <c>"-Infinity"</c> and read back as the number. Each shadow is written on its own: one that
+/// cannot be written is recorded with the reason in its <c>error</c>, and never costs the live
+/// decision its record.
+/// </remarks>
 internal static class DecisionJson
 {
     public static string Kind(Question question) =>
@@ -47,23 +55,49 @@ internal static class DecisionJson
 
     public static string Write(Answer answer) => Node(answer).ToJsonString();
 
+    /// <summary>
+    /// The answer as stored, with why an earlier run's answer to the same question was not
+    /// replayed, when it was not.
+    /// </summary>
+    public static string Write(Answer answer, string? replayRefused)
+    {
+        var node = Node(answer);
+
+        if (replayRefused is not null)
+            node["replay_refused"] = replayRefused;
+
+        return node.ToJsonString();
+    }
+
     public static string? Write(IReadOnlyList<ShadowAnswer> shadows) =>
-        shadows.Count == 0
-            ? null
-            : new JsonArray(
-                shadows
-                    .Select(s =>
-                        (JsonNode)
-                            new JsonObject
-                            {
-                                ["decider"] = s.Decider.FullName,
-                                ["agrees"] = s.Agrees,
-                                ["error"] = s.Error,
-                                ["answer"] = s.Answer is null ? null : Node(s.Answer),
-                            }
-                    )
-                    .ToArray()
-            ).ToJsonString();
+        shadows.Count == 0 ? null : new JsonArray(shadows.Select(Shadow).ToArray()).ToJsonString();
+
+    private static JsonNode Shadow(ShadowAnswer shadow)
+    {
+        try
+        {
+            var node = new JsonObject
+            {
+                ["decider"] = shadow.Decider.FullName,
+                ["agrees"] = shadow.Agrees,
+                ["error"] = shadow.Error,
+                ["answer"] = shadow.Answer is null ? null : Node(shadow.Answer),
+            };
+
+            // Written here so a shadow that cannot be written fails alone, not the whole array.
+            return JsonNode.Parse(node.ToJsonString())!;
+        }
+        catch (Exception e)
+        {
+            return new JsonObject
+            {
+                ["decider"] = shadow.Decider?.FullName,
+                ["agrees"] = shadow.Agrees,
+                ["error"] = $"its answer could not be recorded: {e.Message}",
+                ["answer"] = null,
+            };
+        }
+    }
 
     /// <summary>
     /// Reads a stored answer back, or throws <see cref="JsonException"/> when it cannot be: a replay
@@ -81,17 +115,15 @@ internal static class DecisionJson
         {
             "choice" => new ChoiceAnswer(
                 Required(node, "choice").GetValue<string>(),
-                Required(node, "confidence").GetValue<double>(),
-                node["probabilities"]
-                    ?.AsObject()
-                    .ToDictionary(p => p.Key, p => p.Value!.GetValue<double>())
+                ReadNumber(Required(node, "confidence")),
+                node["probabilities"]?.AsObject().ToDictionary(p => p.Key, p => ReadNumber(p.Value))
             ),
             "score" => new ScoreAnswer(
-                Required(node, "score").GetValue<double>(),
-                Required(node, "confidence").GetValue<double>(),
-                node["probabilities"]?.AsArray().Select(p => p!.GetValue<double>()).ToList()
+                ReadNumber(Required(node, "score")),
+                ReadNumber(Required(node, "confidence")),
+                node["probabilities"]?.AsArray().Select(ReadNumber).ToList()
             ),
-            "yes_no" => new YesNoAnswer(Required(node, "probability").GetValue<double>()),
+            "yes_no" => new YesNoAnswer(ReadNumber(Required(node, "probability"))),
             var other => throw new JsonException(
                 $"A recorded answer has the unknown type '{other}'."
             ),
@@ -111,26 +143,28 @@ internal static class DecisionJson
             {
                 ["type"] = "choice",
                 ["choice"] = c.Choice,
-                ["confidence"] = c.Confidence,
+                ["confidence"] = Number(c.Confidence),
                 ["probabilities"] = c.Probabilities is null
                     ? null
                     : new JsonObject(
-                        c.Probabilities.Select(p => KeyValuePair.Create(p.Key, (JsonNode?)p.Value))
+                        c.Probabilities.Select(p =>
+                            KeyValuePair.Create(p.Key, (JsonNode?)Number(p.Value))
+                        )
                     ),
             },
             ScoreAnswer s => new JsonObject
             {
                 ["type"] = "score",
-                ["score"] = s.Score,
-                ["confidence"] = s.Confidence,
+                ["score"] = Number(s.Score),
+                ["confidence"] = Number(s.Confidence),
                 ["probabilities"] = s.Probabilities is null
                     ? null
-                    : new JsonArray(s.Probabilities.Select(p => (JsonNode?)p).ToArray()),
+                    : new JsonArray(s.Probabilities.Select(p => (JsonNode?)Number(p)).ToArray()),
             },
             YesNoAnswer y => new JsonObject
             {
                 ["type"] = "yes_no",
-                ["probability"] = y.Probability,
+                ["probability"] = Number(y.Probability),
             },
             _ => new JsonObject { ["type"] = answer.GetType().Name },
         };
@@ -147,6 +181,18 @@ internal static class DecisionJson
                 )
                 .ToArray()
         );
+
+    /// <summary>A number as JSON, or its name as a string when JSON cannot hold it.</summary>
+    private static JsonNode Number(double value) =>
+        double.IsFinite(value)
+            ? JsonValue.Create(value)
+            : JsonValue.Create(value.ToString(CultureInfo.InvariantCulture));
+
+    private static double ReadNumber(JsonNode? node) =>
+        node is JsonValue value && value.TryGetValue<string>(out var text)
+            ? double.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture)
+            : node?.GetValue<double>()
+                ?? throw new JsonException("A recorded answer has a number that is null.");
 
     private static JsonNode Required(JsonObject node, string name) =>
         node[name] ?? throw new JsonException($"A recorded answer has no '{name}'.");

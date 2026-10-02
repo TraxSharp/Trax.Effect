@@ -2,18 +2,11 @@ namespace Trax.Effect.Data.Decisions
 {
     public sealed class DecisionJournal : Trax.Core.Decisions.IDecisionObserver, Trax.Core.Decisions.IDecisionReplay
     {
-        public DecisionJournal(Microsoft.Extensions.Logging.ILogger<Trax.Effect.Data.Decisions.DecisionJournal>? logger = null) { }
-        public void Decided(Trax.Core.Decisions.DecisionMade decision) { }
+        public DecisionJournal(Trax.Effect.Data.Services.IDataContextFactory.IDataContextProviderFactory contextFactory, Microsoft.Extensions.Logging.ILogger<Trax.Effect.Data.Decisions.DecisionJournal>? logger = null) { }
+        public bool Required { get; }
+        public System.Threading.Tasks.Task Decided(Trax.Core.Decisions.DecisionMade decision, System.Threading.CancellationToken cancellationToken) { }
         public Trax.Core.Decisions.Answer? Replay(string train, string runId, string key, int occurrence) { }
-        public void Routed(Trax.Core.Decisions.TrackRouted routing) { }
-    }
-    public sealed class DecisionRecordingHook : Trax.Effect.Services.TrainLifecycleHook.ITrainLifecycleHook
-    {
-        public DecisionRecordingHook(Trax.Effect.Data.Services.DataContext.IDataContext dataContext, Trax.Effect.Data.Decisions.DecisionJournal journal, Microsoft.Extensions.Logging.ILogger<Trax.Effect.Data.Decisions.DecisionRecordingHook>? logger = null) { }
-        public System.Threading.Tasks.Task OnCancelled(Trax.Effect.Models.Metadata.Metadata metadata, System.Threading.CancellationToken ct) { }
-        public System.Threading.Tasks.Task OnCompleted(Trax.Effect.Models.Metadata.Metadata metadata, System.Threading.CancellationToken ct) { }
-        public System.Threading.Tasks.Task OnFailed(Trax.Effect.Models.Metadata.Metadata metadata, System.Exception exception, System.Threading.CancellationToken ct) { }
-        public System.Threading.Tasks.Task OnStarted(Trax.Effect.Models.Metadata.Metadata metadata, System.Threading.CancellationToken ct) { }
+        public System.Threading.Tasks.Task Routed(Trax.Core.Decisions.TrackRouted routing, System.Threading.CancellationToken cancellationToken) { }
     }
 }
 namespace Trax.Effect.Data.Extensions

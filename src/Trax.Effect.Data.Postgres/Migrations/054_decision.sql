@@ -1,7 +1,7 @@
 -- Decisions a train made at run time: each question it asked a decider (a typed decision model, a
--- rule table, a cascade of both), the answer it acted on, and the track it took. Written when the
--- run finishes by AddDecisionRecording, and read back to replay a requeued run's decisions so it
--- takes the tracks the original took instead of asking again. The model is
+-- rule table, a cascade of both), the answer it acted on, and the track it took. Written by
+-- AddDecisionRecording as each decision is made, before the run acts on it, and read back to replay
+-- a requeued run's decisions so it takes the tracks the original took instead of asking again. The model is
 -- Trax.Effect.Models.RecordedDecision, on IDataContext.RecordedDecisions.
 --
 -- A decision belongs to its run and goes with it: the cascade keeps every existing delete of
@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS trax.decision (
 
 -- Which run's decisions a run replays. Set by a requeue on the queued entry and carried to the
 -- run's metadata at dispatch. Not a foreign key: the original may be deleted before the requeue
--- runs, and a replay that finds nothing recorded asks afresh.
+-- runs, and the requeued run then fails rather than asking afresh. A question the original never
+-- reached is asked afresh.
 ALTER TABLE trax.work_queue ADD COLUMN IF NOT EXISTS replay_decisions_of bigint;
 ALTER TABLE trax.metadata ADD COLUMN IF NOT EXISTS replay_decisions_of bigint;
