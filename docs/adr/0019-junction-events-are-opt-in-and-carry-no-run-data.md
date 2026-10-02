@@ -43,7 +43,17 @@ out of the default SignalR payload (`0016`) and present it by exception type in 
 carries the exception's type and its failure class and nothing else about the failure. A question's
 answer is new information that train events never carried, so `[TraxSensitive]` on the enum or
 marker type a routing step asks about withholds it, and the track taken with it, from both the
-event and the row (`0010` is extended to cover types for this purpose only).
+event and the row (`0010` is extended to cover types for this purpose only). The mark is honoured
+wherever the question's key is built from a marked type: a closed form of a marked generic type, a
+type nested in one, a type that takes one as an argument, and a type that inherits the mark. It
+fails closed: a key that shares a name with a marked type is withheld too.
+
+**What reaches a browser.** The SignalR sink sends every train's events to every connected client,
+so its junction payload carries a question's key and whether it was replayed, but not its answer
+or confidence. A host that wants answers in front of every client says so with
+`WithJunctionAnswers()`, and a host that redacts its train events can shape junction events the
+same way with `WithJunctionProjection()`. When the sink's queue is full it gives up junction events
+before a train's own events, as the RabbitMQ queue does.
 
 **Retention.** A step belongs to its run. The foreign key cascades, as `trax.decision`'s does, so
 every existing delete of metadata, the scheduler's cleanup and manifest pruning included, removes
@@ -99,7 +109,8 @@ Local handlers run on the run's path and must return quickly.
   decision observers compose.
 - `JunctionEventRoutingTests` pins that a junction event reaches junction event handlers only.
 - `SignalRJunctionEventTests` pins that the SignalR sink sends steps only when asked, through the
-  train filter it already applies.
+  train filter it already applies, without answers unless asked for them, through a host's own
+  projection when it has one, and that its full queue gives up steps first.
 - `PostgresJunctionRunTests` and `SqliteJunctionRunTests` pin that the rows read back in order and
   go with their run.
 
@@ -110,3 +121,4 @@ tests check the fields that exist against known secrets, not the shape of every 
 
 - **2026-10-02**: Recorded.
 - **2026-10-02**: A manifest's run carries its attempt.
+- **2026-10-02**: Sensitive question types are matched in every form of their key; the SignalR payload leaves answers out unless asked, and its queue drops steps first.

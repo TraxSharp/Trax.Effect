@@ -9,8 +9,10 @@ namespace Trax.Effect.Broadcaster.SignalR.Models;
 /// </summary>
 /// <remarks>
 /// It carries the step's name, position, kind, state and times, a failed junction's failure class
-/// and exception type, and for a question the answer summary the run acted on. Never an input, an
-/// output, a failure's message or anything a decider was shown. A null is left off the wire. Field
+/// and exception type, and for a question its key. The answer and the confidence are left null unless
+/// the sink was configured with <c>WithJunctionAnswers()</c>, and stay null for a question whose
+/// answer is withheld. Never an input, an output, a failure's message or anything a decider was
+/// shown. A null is left off the wire. Field
 /// meanings are those of <c>JunctionEventPayload</c>.
 /// </remarks>
 public record TraxJunctionClientEvent(

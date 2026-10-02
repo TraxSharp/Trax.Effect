@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Threading.Channels;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -47,7 +46,7 @@ internal sealed class SignalRTrainEventDispatcher
     private readonly IHubContext<TraxTrainEventHub, ITraxTrainEventClient> _hub;
     private readonly SignalRSinkConfiguration _config;
     private readonly ILogger<SignalRTrainEventDispatcher>? _logger;
-    private readonly Channel<TrainLifecycleEventMessage> _queue;
+    private readonly DeliveryQueue _queue;
     private readonly CancellationTokenSource _abandon = new();
     private readonly Task _sender;
 
@@ -64,14 +63,7 @@ internal sealed class SignalRTrainEventDispatcher
         _hub = hub;
         _config = config;
         _logger = logger;
-        _queue = Channel.CreateBounded<TrainLifecycleEventMessage>(
-            new BoundedChannelOptions(config.DeliveryQueueCapacity)
-            {
-                FullMode = BoundedChannelFullMode.Wait,
-                SingleReader = true,
-                SingleWriter = false,
-            }
-        );
+        _queue = new DeliveryQueue(config.DeliveryQueueCapacity);
         _sender = Task.Run(SendLoopAsync);
     }
 
@@ -114,12 +106,9 @@ internal sealed class SignalRTrainEventDispatcher
         if (!_config.Matches(message))
             return Task.CompletedTask;
 
-        if (_queue.Writer.TryWrite(message))
-            return Task.CompletedTask;
-
-        // TryWrite also fails once the writer is completed. An event raised during shutdown is
-        // not a drop caused by slow clients, so it is not counted.
-        if (Volatile.Read(ref _stopped) != 0)
+        // A completed queue refuses the write once shutdown started; that is not a drop caused
+        // by slow clients, so it is not counted.
+        if (!_queue.TryWrite(message, out var dropped) || dropped is null)
             return Task.CompletedTask;
 
         Interlocked.Increment(ref _dropped);
@@ -127,11 +116,12 @@ internal sealed class SignalRTrainEventDispatcher
         {
             _logger?.LogWarning(
                 "SignalR sink delivery queue is full ({Capacity} events): dropping {EventType} for "
-                    + "train {TrainName} ({ExternalId}) and further events until clients catch up.",
+                    + "train {TrainName} ({ExternalId}) and further events until clients catch up. "
+                    + "Train events are kept in preference to junction events.",
                 _config.DeliveryQueueCapacity,
-                message.EventType,
-                message.TrainName,
-                message.ExternalId
+                dropped.EventType,
+                dropped.TrainName,
+                dropped.ExternalId
             );
         }
 
@@ -142,11 +132,11 @@ internal sealed class SignalRTrainEventDispatcher
     {
         try
         {
-            await foreach (var message in _queue.Reader.ReadAllAsync(_abandon.Token))
+            while (await _queue.ReadAsync(_abandon.Token) is { } message)
             {
                 await SendAsync(message);
 
-                if (_queue.Reader.Count == 0)
+                if (_queue.Count == 0)
                 {
                     var dropped = Interlocked.Exchange(ref _droppedSinceReport, 0);
                     if (dropped > 0)
@@ -173,10 +163,8 @@ internal sealed class SignalRTrainEventDispatcher
             {
                 // Matches already refused it unless junction events were asked for; one with no
                 // step has nothing to send.
-                if (message.Junction is { } step)
-                    await _hub.Clients.All.JunctionEvent(
-                        DefaultTraxJunctionClientEventProjection.Project(message, step)
-                    );
+                if (message.Junction is not null)
+                    await _hub.Clients.All.JunctionEvent(_config.JunctionProjection(message));
                 return;
             }
 
@@ -205,7 +193,7 @@ internal sealed class SignalRTrainEventDispatcher
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         Volatile.Write(ref _stopped, 1);
-        _queue.Writer.TryComplete();
+        _queue.Complete();
 
         try
         {
@@ -216,7 +204,7 @@ internal sealed class SignalRTrainEventDispatcher
             await _abandon.CancelAsync();
             _logger?.LogWarning(
                 "SignalR sink stopped before its delivery queue drained; {Remaining} events were not sent.",
-                _queue.Reader.Count
+                _queue.Count
             );
         }
     }
@@ -238,7 +226,7 @@ internal sealed class SignalRTrainEventDispatcher
     public void Dispose()
     {
         Volatile.Write(ref _stopped, 1);
-        _queue.Writer.TryComplete();
+        _queue.Complete();
         if (!_sender.IsCompleted)
             _abandon.Cancel();
     }

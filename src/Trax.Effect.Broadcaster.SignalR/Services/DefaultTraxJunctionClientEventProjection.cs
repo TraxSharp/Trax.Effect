@@ -8,13 +8,15 @@ internal static class DefaultTraxJunctionClientEventProjection
     /// <summary>
     /// The client payload for a junction event. Only the step's own fields are copied: the message's
     /// output and failure fields, which a junction event leaves empty anyway, never are, and neither
-    /// is the decider's name.
+    /// is the decider's name. A question's answer and confidence are copied only when
+    /// <paramref name="answers"/> is set, and never when the step withheld them.
     /// </summary>
-    public static TraxJunctionClientEvent Project(
-        TrainLifecycleEventMessage message,
-        JunctionEventPayload step
-    ) =>
-        new(
+    public static TraxJunctionClientEvent Project(TrainLifecycleEventMessage message, bool answers)
+    {
+        var step = message.Junction!;
+        var withheld = !answers || step.AnswerWithheld;
+
+        return new(
             MetadataId: message.MetadataId,
             ExternalId: message.ExternalId,
             TrainName: message.TrainName,
@@ -30,9 +32,10 @@ internal static class DefaultTraxJunctionClientEventProjection
             FailureClass: step.FailureClass?.ToString(),
             FailureException: step.FailureException,
             QuestionKey: step.QuestionKey,
-            Answer: step.AnswerWithheld ? null : step.Answer,
-            Confidence: step.AnswerWithheld ? null : step.Confidence,
+            Answer: withheld ? null : step.Answer,
+            Confidence: withheld ? null : step.Confidence,
             Replayed: step.Replayed,
             AnswerWithheld: step.AnswerWithheld
         );
+    }
 }

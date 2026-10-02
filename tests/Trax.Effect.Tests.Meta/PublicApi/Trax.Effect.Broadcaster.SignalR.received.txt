@@ -15,7 +15,10 @@ namespace Trax.Effect.Broadcaster.SignalR.Configuration.SignalRSinkOptions
             where T2 :  class
             where T3 :  class { }
         public Trax.Effect.Broadcaster.SignalR.Configuration.SignalRSinkOptions.SignalRSinkOptions WithDeliveryQueueCapacity(int capacity) { }
+        public Trax.Effect.Broadcaster.SignalR.Configuration.SignalRSinkOptions.SignalRSinkOptions WithJunctionAnswers() { }
         public Trax.Effect.Broadcaster.SignalR.Configuration.SignalRSinkOptions.SignalRSinkOptions WithJunctionEvents() { }
+        public Trax.Effect.Broadcaster.SignalR.Configuration.SignalRSinkOptions.SignalRSinkOptions WithJunctionProjection<TClient>(System.Func<Trax.Effect.Services.TrainEventBroadcaster.TrainLifecycleEventMessage, TClient> projection)
+            where TClient :  notnull { }
         public Trax.Effect.Broadcaster.SignalR.Configuration.SignalRSinkOptions.SignalRSinkOptions WithProjection<TClient>(System.Func<Trax.Effect.Services.TrainEventBroadcaster.TrainLifecycleEventMessage, TClient> projection)
             where TClient :  notnull { }
     }

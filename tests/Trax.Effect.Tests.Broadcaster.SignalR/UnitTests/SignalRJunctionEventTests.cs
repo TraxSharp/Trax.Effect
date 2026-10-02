@@ -161,9 +161,9 @@ public class SignalRJunctionEventTests
     }
 
     [Test]
-    public async Task A_withheld_answer_is_not_sent()
+    public async Task A_withheld_answer_is_not_sent_even_to_a_sink_that_sends_answers()
     {
-        var d = Create(NewOptions().WithJunctionEvents().Build());
+        var d = Create(NewOptions().WithJunctionAnswers().Build());
         object? sent = null;
         await _client.JunctionEvent(Arg.Do<object>(p => sent = p));
         var message = Step(eventType: "Decided");
@@ -186,6 +186,109 @@ public class SignalRJunctionEventTests
         step.AnswerWithheld.Should().BeTrue();
         step.Answer.Should().BeNull();
         step.Confidence.Should().BeNull();
+    }
+
+    private static TrainLifecycleEventMessage Decided(string trainName = "Some.Other.IFoo")
+    {
+        var message = Step(trainName, eventType: "Decided");
+        return message with
+        {
+            Junction = message.Junction! with
+            {
+                Kind = JunctionRunKind.Choice,
+                State = JunctionRunState.Completed,
+                Answer = "Express",
+                Confidence = 0.9,
+                QuestionKey = "Lane",
+                Replayed = true,
+            },
+        };
+    }
+
+    [Test]
+    public async Task By_default_a_question_is_sent_without_its_answer_or_confidence()
+    {
+        var d = Create(NewOptions().WithJunctionEvents().Build());
+        object? sent = null;
+        await _client.JunctionEvent(Arg.Do<object>(p => sent = p));
+
+        await d.HandleAsync(Decided(), CancellationToken.None);
+        await d.StopAsync(CancellationToken.None);
+
+        var step = sent.Should().BeOfType<TraxJunctionClientEvent>().Subject;
+        step.QuestionKey.Should().Be("Lane");
+        step.Replayed.Should().BeTrue();
+        step.Answer.Should()
+            .BeNull(
+                $"every client sees every train, so answers are sent only when asked. See {Adr}."
+            );
+        step.Confidence.Should().BeNull();
+    }
+
+    [Test]
+    public async Task A_sink_that_asks_for_answers_sends_them()
+    {
+        var d = Create(NewOptions().WithJunctionAnswers().Build());
+        object? sent = null;
+        await _client.JunctionEvent(Arg.Do<object>(p => sent = p));
+
+        await d.HandleAsync(Decided(), CancellationToken.None);
+        await d.StopAsync(CancellationToken.None);
+
+        var step = sent.Should().BeOfType<TraxJunctionClientEvent>().Subject;
+        step.Answer.Should().Be("Express");
+        step.Confidence.Should().Be(0.9);
+    }
+
+    [Test]
+    public async Task A_host_projection_shapes_junction_events()
+    {
+        var d = Create(
+            NewOptions()
+                .WithJunctionProjection(m => new RedactedStep(m.MetadataId, m.Junction!.Name))
+                .Build()
+        );
+        object? sent = null;
+        await _client.JunctionEvent(Arg.Do<object>(p => sent = p));
+
+        await d.HandleAsync(Decided(), CancellationToken.None);
+        await d.StopAsync(CancellationToken.None);
+
+        sent.Should().Be(new RedactedStep(9, "Ship"));
+    }
+
+    public sealed record RedactedStep(long MetadataId, string Name);
+
+    [Test]
+    public async Task A_full_queue_gives_up_junction_events_before_a_train_event()
+    {
+        var entered = new TaskCompletionSource();
+        var release = new TaskCompletionSource();
+        _client
+            .JunctionEvent(Arg.Any<object>())
+            .Returns(_ =>
+            {
+                entered.TrySetResult();
+                return release.Task;
+            });
+        var d = Create(NewOptions().WithJunctionEvents().WithDeliveryQueueCapacity(2).Build());
+
+        await d.HandleAsync(Step(), CancellationToken.None);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10)); // the sender holds this one
+        await d.HandleAsync(Step(), CancellationToken.None);
+        await d.HandleAsync(Step(), CancellationToken.None); // the queue is full
+        var completed = Step(eventType: "Completed") with { Junction = null, ExternalId = "other" };
+        await d.HandleAsync(completed, CancellationToken.None);
+        await d.HandleAsync(Step(), CancellationToken.None);
+
+        release.SetResult();
+        await d.StopAsync(CancellationToken.None);
+
+        await _client
+            .Received(1)
+            .TrainEvent(Arg.Is<object>(p => ((TraxClientEvent)p).ExternalId == "other"));
+        d.DroppedEvents.Should()
+            .Be(2, $"a run's steps are given up before another run's outcome. See {Adr}.");
     }
 
     [Test]

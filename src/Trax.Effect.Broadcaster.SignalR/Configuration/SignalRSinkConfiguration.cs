@@ -1,3 +1,4 @@
+using Trax.Effect.Broadcaster.SignalR.Services;
 using Trax.Effect.Services.TrainEventBroadcaster;
 
 namespace Trax.Effect.Broadcaster.SignalR.Configuration;
@@ -13,10 +14,16 @@ internal sealed class SignalRSinkConfiguration
         IReadOnlySet<string> trainNameFilter,
         Func<TrainLifecycleEventMessage, object> projection,
         int deliveryQueueCapacity,
-        bool junctionEvents = false
+        bool junctionEvents = false,
+        Func<TrainLifecycleEventMessage, object>? junctionProjection = null
     )
     {
         JunctionEvents = junctionEvents;
+        JunctionProjection =
+            junctionProjection
+            ?? (
+                message => DefaultTraxJunctionClientEventProjection.Project(message, answers: false)
+            );
         EventTypeFilter = eventTypeFilter;
         TrainNameFilter = trainNameFilter;
         Projection = projection;
@@ -48,6 +55,12 @@ internal sealed class SignalRSinkConfiguration
     /// Whether junction events are sent to clients. Off unless <c>WithJunctionEvents()</c> was called.
     /// </summary>
     public bool JunctionEvents { get; }
+
+    /// <summary>
+    /// Projection applied to each junction event before it is sent to clients. By default a
+    /// <c>TraxJunctionClientEvent</c> without the answer or the confidence.
+    /// </summary>
+    public Func<TrainLifecycleEventMessage, object> JunctionProjection { get; }
 
     /// <summary>
     /// Returns true if a message satisfies both the event-type and train-name filters. A junction
