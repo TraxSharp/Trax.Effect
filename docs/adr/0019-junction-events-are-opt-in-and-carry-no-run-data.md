@@ -33,8 +33,19 @@ anything that was not a data-change signal to every connected client. Adding `Ju
 one more train event type would have reached both. So the receiver routes a junction event only to
 `IJunctionEventHandler`s, the SignalR sink sends one only when configured with
 `WithJunctionEvents()`, and nothing that handled train events before sees one now. They share the
-transport so they keep their order relative to the run's own events, and the RabbitMQ queue drops
-them first when it is full, so a busy run's steps never cost another run its outcome.
+broadcaster's queue, and the RabbitMQ queue drops them first when it is full, so a busy run's steps
+never cost another run its outcome.
+
+**A host that predates junction events never receives one.** Routing at the receiver only protects
+receivers of this version. On RabbitMQ every receiver binds a fanout exchange, so junction events
+are published to an exchange of their own, `<ExchangeName>.junctions` by default
+(`JunctionExchangeName`), declared by the publisher and the receiver of this version, whose queue
+binds both. A receiver from before binds only the train exchange, so a mixed fleet can be upgraded
+in any order: an old receiver never sees a step, an old publisher never sends one, and a new
+receiver gets steps from new publishers as soon as they start. The cost is that a step and its
+run's own events no longer share one broker queue, so a subscriber can see a run's `Completed`
+before its last step arrives; each carries its position and timestamps, and the API and dashboard
+order by them.
 
 **What a step carries.** A junction's input and output, the train's input and output, a failure's
 message and the state a decider was shown can all hold user data, and a step goes to other
@@ -64,9 +75,8 @@ the steps without knowing the table exists.
 **A new train event type with a nullable payload, delivered to every handler.** Rejected for the
 reasons above: it changes what existing handlers receive.
 
-**A separate message type and transport (its own exchange).** Rejected: a second RabbitMQ
-broadcaster and receiver for the same payloads, and the steps would lose their order relative to
-the run's own events.
+**A separate message type and transport.** Rejected: a second RabbitMQ broadcaster and receiver
+for the same payloads. A second exchange on the same broadcaster and receiver was taken instead.
 
 **Writing a step on the run's path.** Rejected: a database that is slow or down would stall every
 junction for its connection timeout. A background writer queues steps (4096), writes them in order
@@ -108,6 +118,8 @@ Local handlers run on the run's path and must return quickly.
   that it is off by default, that a failing handler or transport does not change the run, and that
   decision observers compose.
 - `JunctionEventRoutingTests` pins that a junction event reaches junction event handlers only.
+- `RabbitMqJunctionExchangeTests` pins that a receiver bound only to the train exchange receives no
+  junction event, while a current receiver receives both.
 - `SignalRJunctionEventTests` pins that the SignalR sink sends steps only when asked, through the
   train filter it already applies, without answers unless asked for them, through a host's own
   projection when it has one, and that its full queue gives up steps first.
@@ -122,3 +134,4 @@ tests check the fields that exist against known secrets, not the shape of every 
 - **2026-10-02**: Recorded.
 - **2026-10-02**: A manifest's run carries its attempt.
 - **2026-10-02**: Sensitive question types are matched in every form of their key; the SignalR payload leaves answers out unless asked, and its queue drops steps first.
+- **2026-10-02**: Junction events have a RabbitMQ exchange of their own.

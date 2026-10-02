@@ -256,6 +256,10 @@ internal class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDis
         }
     }
 
+    private static bool IsJunctionEvent(TrainLifecycleEventMessage message) =>
+        message.Junction is not null
+        || TrainLifecycleEventMessage.IsJunctionEvent(message.EventType);
+
     // The broker answered and turned this event down: it closed the channel with a channel-level
     // error (access refused, not found, not allowed, precondition failed), or nacked the publish.
     private static bool IsRefusal(Exception ex) =>
@@ -284,8 +288,14 @@ internal class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDis
         // The channel tracks confirms, so this completes once the broker has confirmed the event.
         using var bound = CancellationTokenSource.CreateLinkedTokenSource(ct);
         bound.CancelAfter(_publishTimeout);
+        // A junction event goes to an exchange of its own, which only receivers that know junction
+        // events bind, so one that predates them never receives one.
+        var exchange = IsJunctionEvent(message)
+            ? _options.EffectiveJunctionExchangeName
+            : _options.ExchangeName;
+
         await channel.BasicPublishAsync(
-            exchange: _options.ExchangeName,
+            exchange: exchange,
             routingKey: string.Empty,
             mandatory: false,
             basicProperties: properties,
@@ -297,7 +307,7 @@ internal class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDis
             "Published {EventType} event for train {TrainName} to exchange {Exchange}.",
             message.EventType,
             message.TrainName,
-            _options.ExchangeName
+            exchange
         );
     }
 
@@ -325,13 +335,20 @@ internal class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDis
         {
             // Declared on every channel: the exchange may have been deleted, or lost with a broker
             // restart, since the last one.
-            await channel.ExchangeDeclareAsync(
-                exchange: _options.ExchangeName,
-                type: ExchangeType.Fanout,
-                durable: true,
-                autoDelete: false,
-                cancellationToken: bound.Token
-            );
+            foreach (
+                var exchange in new[]
+                {
+                    _options.ExchangeName,
+                    _options.EffectiveJunctionExchangeName,
+                }
+            )
+                await channel.ExchangeDeclareAsync(
+                    exchange: exchange,
+                    type: ExchangeType.Fanout,
+                    durable: true,
+                    autoDelete: false,
+                    cancellationToken: bound.Token
+                );
         }
         catch
         {

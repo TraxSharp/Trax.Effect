@@ -386,7 +386,19 @@ public class RabbitMqBroadcasterSenderTests
         await second
             .Received(1)
             .ExchangeDeclareAsync(
+                "trax.lifecycle",
                 Arg.Any<string>(),
+                Arg.Any<bool>(),
+                Arg.Any<bool>(),
+                Arg.Any<IDictionary<string, object?>?>(),
+                Arg.Any<bool>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>()
+            );
+        await second
+            .Received(1)
+            .ExchangeDeclareAsync(
+                "trax.lifecycle.junctions",
                 Arg.Any<string>(),
                 Arg.Any<bool>(),
                 Arg.Any<bool>(),

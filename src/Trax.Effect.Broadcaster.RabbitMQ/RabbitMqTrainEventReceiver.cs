@@ -37,8 +37,11 @@ public class RabbitMqTrainEventReceiver : ITrainEventReceiver
         _logger = logger;
     }
 
+    private string[] Exchanges => [_options.ExchangeName, _options.EffectiveJunctionExchangeName];
+
     /// <summary>
-    /// Connects, declares the fanout exchange, binds a new exclusive auto-delete queue to it and
+    /// Connects, declares the train and junction fanout exchanges, binds a new exclusive
+    /// auto-delete queue to both and
     /// starts consuming, passing each deserialized event to <paramref name="handler"/>.
     /// </summary>
     /// <param name="handler">
@@ -107,13 +110,14 @@ public class RabbitMqTrainEventReceiver : ITrainEventReceiver
             cancellationToken: ct
         );
 
-        await _channel.ExchangeDeclareAsync(
-            exchange: _options.ExchangeName,
-            type: ExchangeType.Fanout,
-            durable: true,
-            autoDelete: false,
-            cancellationToken: ct
-        );
+        foreach (var exchange in Exchanges)
+            await _channel.ExchangeDeclareAsync(
+                exchange: exchange,
+                type: ExchangeType.Fanout,
+                durable: true,
+                autoDelete: false,
+                cancellationToken: ct
+            );
 
         var queueDeclareResult = await _channel.QueueDeclareAsync(
             queue: string.Empty,
@@ -124,12 +128,15 @@ public class RabbitMqTrainEventReceiver : ITrainEventReceiver
         );
         _queueName = queueDeclareResult.QueueName;
 
-        await _channel.QueueBindAsync(
-            queue: _queueName,
-            exchange: _options.ExchangeName,
-            routingKey: string.Empty,
-            cancellationToken: ct
-        );
+        // Bound to the junction exchange too, so this receiver gets junction events; one that
+        // predates them binds only the train exchange and never does.
+        foreach (var exchange in Exchanges)
+            await _channel.QueueBindAsync(
+                queue: _queueName,
+                exchange: exchange,
+                routingKey: string.Empty,
+                cancellationToken: ct
+            );
 
         var consumer = new AsyncEventingBasicConsumer(channel);
         consumer.ReceivedAsync += async (_, ea) =>

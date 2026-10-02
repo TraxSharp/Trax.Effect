@@ -48,6 +48,16 @@ public static class RabbitMqBroadcasterExtensions
             );
         }
 
+        if (options.EffectiveJunctionExchangeName == options.ExchangeName)
+        {
+            throw new ArgumentException(
+                "UseRabbitMq() requires RabbitMqBroadcasterOptions.JunctionExchangeName to differ "
+                    + "from ExchangeName, so a receiver that predates junction events never receives "
+                    + "one. Omit it to use the default, ExchangeName + \".junctions\".",
+                nameof(configure)
+            );
+        }
+
         builder.ServiceCollection.AddSingleton(options);
         builder
             .ServiceCollection.AddSingleton<RabbitMqTrainEventBroadcaster>()
