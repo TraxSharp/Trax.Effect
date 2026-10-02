@@ -11,14 +11,14 @@ namespace Trax.Effect.Decisions.SystemOne;
 
 /// <summary>
 /// Answers a train's questions through the System One request format: one state and a set of
-/// typed questions in, typed answers with calibrated probabilities out. Jev introduced the format;
-/// d1, Laya, Kev, Nimble, OpenDecider and other typed decision models accept it, hosted or
-/// self-hosted.
+/// typed questions in, typed answers with calibrated probabilities out. Jev introduced the format,
+/// and Nimble's server (on OpenJev) accepts it too.
 /// </summary>
 /// <remarks>
 /// A choice is sent as <c>choice</c>, a scale as <c>score</c> and a yes/no as <c>noul</c>, with
-/// each option's description as its criterion. Every answer carries the model and version the
-/// response names, so a decision can be traced to the model that made it.
+/// each option's description as its criterion. Every answer carries the <c>model</c> the response
+/// names. That is the name the request asked for, echoed back, not a version the server confirms:
+/// pin the version where the model is deployed.
 ///
 /// <para>A choice or score answer without a <c>confidence</c>, which the format allows, takes the
 /// probability of the chosen option or level instead; one with neither is left out. A score's

@@ -56,7 +56,10 @@ public class RecordedDecision
     [Column("fingerprint")]
     public string Fingerprint { get; set; } = null!;
 
-    /// <summary>The model and version that answered, or null for a decider that is not a model.</summary>
+    /// <summary>
+    /// The model that answered, as the decider named it (for a System One model, the name the
+    /// request asked for, echoed back), or null for a decider that is not a model.
+    /// </summary>
     [Column("model")]
     public string? Model { get; set; }
 

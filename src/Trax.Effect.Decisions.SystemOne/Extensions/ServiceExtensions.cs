@@ -35,7 +35,7 @@ public static class ServiceExtensions
 {
     /// <summary>
     /// Answers every train's decisions through a typed decision model that speaks the System One
-    /// request format (Jev, d1, Laya, Kev and others), by registering a
+    /// request format (Jev, or a server that accepts it, such as Nimble's), by registering a
     /// <see cref="SystemOneDecider"/> as the <see cref="IDecider"/>.
     /// </summary>
     /// <remarks>

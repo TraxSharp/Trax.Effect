@@ -7,8 +7,7 @@ public sealed class SystemOneOptions
 {
     /// <summary>
     /// The model's System One endpoint, for example <c>https://api.typesafe.ai/v1/systemone</c>
-    /// for Jev, or a self-hosted Laya or Kev at <c>http://localhost:8080/v1/systemone</c>.
-    /// Required. Must be an <c>http</c> or <c>https</c> URL, and HTTPS unless it is a loopback
+    /// for Jev, or the URL of a server you run. Required. Must be an <c>http</c> or <c>https</c> URL, and HTTPS unless it is a loopback
     /// address.
     /// </summary>
     public Uri? Endpoint { get; set; }
