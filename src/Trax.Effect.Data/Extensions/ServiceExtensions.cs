@@ -100,9 +100,11 @@ public static class ServiceExtensions
     /// <see cref="IDecisionReplay"/> that a train's <c>Decide</c>, <c>Switch</c>, <c>Gate</c> and
     /// <c>Scale</c> steps find in the container. Each decision is written, through a data context
     /// of its own, before the train acts on it, and a decision that cannot be written fails its
-    /// step, classified transient. A run queued with <c>ReplayDecisionsOf</c> loads that run's
-    /// answers when it starts, and fails, classified permanent, when that run does not exist.
-    /// Calling this more than once registers it once.
+    /// step, classified transient. Each run's row is marked <c>DecisionsRecorded</c>. A run queued
+    /// with <c>ReplayDecisionsOf</c> loads, when it starts, the answers of that run and, for
+    /// questions it never reached, of the runs it replayed in turn; it fails, classified
+    /// permanent, when a run in that chain does not exist, belongs to another train, or ran
+    /// without recording its decisions. Calling this more than once registers it once.
     /// </remarks>
     public static TraxEffectBuilderWithData AddDecisionRecording(
         this TraxEffectBuilderWithData configurationBuilder
