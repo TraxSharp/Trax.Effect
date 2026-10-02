@@ -24,7 +24,10 @@ public class RecordedDecision
     [Column("metadata_id")]
     public long MetadataId { get; set; }
 
-    /// <summary>The question's key: the full name of the enum or marker type it is about.</summary>
+    /// <summary>
+    /// The question's key, as <c>QuestionKey.For</c> gives it: the <c>[Asks(Key = ...)]</c> on the
+    /// enum or marker type it is about, or else that type's name without its namespace.
+    /// </summary>
     [Column("question_key")]
     public string QuestionKey { get; set; } = null!;
 

@@ -60,7 +60,7 @@ public class DecisionRecordingTests
         var recorded = await Recorded(train.Metadata!.Id);
         var decision = recorded.Should().ContainSingle().Subject;
         decision.QuestionKey.Should().Be(QuestionKey.For<Fulfilment>());
-        decision.QuestionKey.Should().Be(typeof(Fulfilment).FullName);
+        decision.QuestionKey.Should().Be("Fulfilment", "the key leaves the namespace out");
         decision.Occurrence.Should().Be(0);
         decision.Kind.Should().Be("choice");
         decision.Model.Should().Be("jev-1.13.0");

@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using FluentAssertions;
 using Trax.Core.Decisions;
 using Trax.Core.Exceptions;
+using Trax.Core.Train;
 using Trax.Effect.Decisions.SystemOne;
 
 namespace Trax.Effect.Tests.Integration.UnitTests.Decisions;
@@ -828,6 +829,37 @@ public class SystemOneDeciderTests
     }
 
     [Test]
+    public async Task Decide_ATrainsQuestionIsSentUnderItsShortKey()
+    {
+        var model = new FakeModel(_ =>
+            Ok(
+                """
+                {
+                  "model": "jev-1.13.0",
+                  "answers": {
+                    "SystemOneDeciderTests.RefundRoute": { "type": "choice", "choice": "Credit", "confidence": 0.9 },
+                    "refund_reason": { "type": "choice", "choice": "Damaged", "confidence": 0.9 }
+                  }
+                }
+                """
+            )
+        );
+        using var decider = new SystemOneDecider(Options(), new HttpClient(model));
+
+        var result = await new RefundTrain(decider).RunEither("order 42");
+
+        result.IsRight.Should().BeTrue();
+        model.Requests.Should().ContainSingle().Which.Body["questions"]!
+            .AsObject()
+            .Select(q => q.Key)
+            .Should()
+            .Equal(
+                ["SystemOneDeciderTests.RefundRoute", "refund_reason"],
+                "the namespace is left out, and [Asks(Key = ...)] is sent as it is"
+            );
+    }
+
+    [Test]
     public async Task Decide_AQuestionKeyUsedTwice_IsRefused()
     {
         using var decider = new SystemOneDecider(
@@ -992,6 +1024,28 @@ public class SystemOneDeciderTests
     private sealed class Loop
     {
         public Loop? Next { get; set; }
+    }
+
+    [Asks("How should the refund be paid?")]
+    public enum RefundRoute
+    {
+        Original,
+        Credit,
+    }
+
+    [Asks("Why is the order being refunded?", Key = "refund_reason")]
+    public enum RefundReason
+    {
+        Damaged,
+        Late,
+    }
+
+    private sealed class RefundTrain(IDecider decider) : Train<string, string>
+    {
+        protected override Task<LanguageExt.Either<Exception, string>> Junctions() =>
+            AddServices(decider)
+                .Decide<string>(q => q.Choice<RefundRoute>().Choice<RefundReason>())
+                .Resolve();
     }
 
     private sealed record FreeTextQuestion(string Key, string Instructions)
