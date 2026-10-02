@@ -181,10 +181,11 @@ public sealed class DecisionJournal(
     ) => Task.FromResult(Bound(runId)?.Replay.GetValueOrDefault((key, occurrence)));
 
     /// <summary>
-    /// Binds the run to its row and loads the answers of the run it replays. A run that names one
-    /// that does not exist, is a run of another train, or whose answers cannot be read, fails
-    /// here, classified permanent; one
-    /// whose answers cannot be loaded because the database failed fails classified transient.
+    /// Binds the run to its row and loads the answers of the runs it replays. A run that names one
+    /// that cannot be replayed (it, or a run it replays in turn, does not exist, is a run of another
+    /// train, or has an answer that cannot be read, or the runs lead back on themselves or further
+    /// than <see cref="MaxReplayChain"/>) fails here, classified permanent; one whose answers
+    /// cannot be loaded because the database failed fails classified transient.
     /// </summary>
     async Task<DecisionRun> IDecisionRunRecorder.Begin(
         Metadata metadata,
@@ -201,38 +202,97 @@ public sealed class DecisionJournal(
         return new DecisionRun(metadata.ExternalId, metadataId, replay);
     }
 
+    /// <summary>
+    /// How many runs back a replay follows <c>replay_decisions_of</c>. A run requeued this many
+    /// times over is failed rather than followed further.
+    /// </summary>
+    public const int MaxReplayChain = 32;
+
+    /// <summary>
+    /// The answers a run replays: those of the run it names, and, for a question that run never
+    /// reached, those of the run that one replayed, and so on back. A requeue of a requeue that
+    /// failed before it reached a question still takes the track the first run took there.
+    /// </summary>
     private async Task<IReadOnlyDictionary<(string, int), RecordedAnswer>> LoadReplay(
         Metadata metadata,
         long source,
         CancellationToken cancellationToken
     )
     {
-        string? train;
-        List<(string QuestionKey, int Occurrence, string Fingerprint, string Answer)> recorded;
+        var chain = new List<long>();
+        string? broken = null;
+        List<(
+            long MetadataId,
+            string Key,
+            int Occurrence,
+            string Fingerprint,
+            string Answer
+        )> recorded;
 
         try
         {
             using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-            train = await context
-                .Metadatas.AsNoTracking()
-                .Where(m => m.Id == source)
-                .Select(m => m.Name)
-                .FirstOrDefaultAsync(cancellationToken);
+            var seen = new HashSet<long> { metadata.Id };
+            long? next = source;
+            var replayedBy = metadata.Id;
 
-            recorded = train is not null ? (
+            while (next is { } id)
+            {
+                if (!seen.Add(id))
+                {
+                    broken = $"the runs it replays lead back to run {id}";
+                    break;
+                }
+
+                if (chain.Count == MaxReplayChain)
+                {
+                    broken = $"the runs it replays go back more than {MaxReplayChain} runs";
+                    break;
+                }
+
+                var link = await context
+                    .Metadatas.AsNoTracking()
+                    .Where(m => m.Id == id)
+                    .Select(m => new { m.Name, m.ReplayDecisionsOf })
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (link is null)
+                {
+                    broken =
+                        id == source
+                            ? $"no run {id} exists"
+                            : $"run {id}, whose decisions run {replayedBy} replays, no longer exists";
+                    break;
+                }
+
+                // Another train's answers were given to other questions in another chain; a
+                // matching key or fingerprint would only make them look like this train's.
+                if (link.Name != metadata.Name)
+                {
+                    broken = $"run {id} is a run of train '{link.Name}', not of this train";
+                    break;
+                }
+
+                chain.Add(id);
+                replayedBy = id;
+                next = link.ReplayDecisionsOf;
+            }
+
+            recorded = broken is not null ? [] : (
                     await context
                         .RecordedDecisions.AsNoTracking()
-                        .Where(d => d.MetadataId == source)
+                        .Where(d => chain.Contains(d.MetadataId))
                         .Select(d => new
                         {
+                            d.MetadataId,
                             d.QuestionKey,
                             d.Occurrence,
                             d.Fingerprint,
                             d.Answer,
                         })
                         .ToListAsync(cancellationToken)
-                ).Select(d => (d.QuestionKey, d.Occurrence, d.Fingerprint, d.Answer)).ToList() : [];
+                ).Select(d => (d.MetadataId, d.QuestionKey, d.Occurrence, d.Fingerprint, d.Answer)).ToList();
         }
         catch (Exception e)
             when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
@@ -248,21 +308,23 @@ public sealed class DecisionJournal(
             throw;
         }
 
-        if (train is null)
-            throw DecisionRun.Unreplayable(metadata, $"no run {source} exists");
-
-        // Another train's answers were given to other questions in another chain; a matching key
-        // or fingerprint would only make them look like this train's.
-        if (train != metadata.Name)
-            throw DecisionRun.Unreplayable(
-                metadata,
-                $"run {source} is a run of train '{train}', not of this train"
-            );
+        if (broken is not null)
+            throw DecisionRun.Unreplayable(metadata, broken);
 
         var answers = new Dictionary<(string, int), RecordedAnswer>();
+        var nearestFirst = chain.Select((id, depth) => (id, depth)).ToDictionary();
 
-        foreach (var (key, occurrence, fingerprint, answer) in recorded)
+        // The nearer run's answer wins: it is what that run acted on, whether it replayed it or
+        // was answered afresh because the older one no longer fitted.
+        foreach (
+            var (runId, key, occurrence, fingerprint, answer) in recorded.OrderBy(d =>
+                nearestFirst[d.MetadataId]
+            )
+        )
         {
+            if (answers.ContainsKey((key, occurrence)))
+                continue;
+
             try
             {
                 answers[(key, occurrence)] = new RecordedAnswer(
@@ -274,7 +336,7 @@ public sealed class DecisionJournal(
             {
                 throw DecisionRun.Unreplayable(
                     metadata,
-                    $"its recorded answer to '{key}' cannot be read: {e.Message}"
+                    $"the answer run {runId} recorded to '{key}' cannot be read: {e.Message}"
                 );
             }
         }

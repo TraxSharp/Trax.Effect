@@ -248,6 +248,104 @@ public class DecisionRecordingTests
     }
 
     [Test]
+    public async Task A_requeue_of_a_requeue_that_recorded_nothing_replays_the_run_before_it()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+        var (original, _) = await Run<IRouteOrder>(new Order("o-chain", 20m));
+
+        // A requeue of the original that failed before it reached the question.
+        var failedRequeue = await Seed<IRouteOrder>(replayDecisionsOf: original.Metadata!.Id);
+
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+
+        var (requeued, output) = await Run<IRouteOrder>(
+            new Order("o-chain", 20m),
+            replayDecisionsOf: failedRequeue
+        );
+
+        output.Should().Be("held for review", "the original's answer is still the one to repeat");
+        decider.Requests.Should().BeEmpty();
+        (await Recorded(requeued.Metadata!.Id))
+            .Should()
+            .ContainSingle()
+            .Which.Replayed.Should()
+            .BeTrue();
+    }
+
+    [Test]
+    public async Task A_replay_takes_the_nearer_runs_answer_and_falls_back_to_the_older_one()
+    {
+        Decider.Use(new SequenceDecider(Fulfilment.ManualCheck, Fulfilment.ManualCheck));
+        var (original, _) = await Run<IRouteTwice>(new Order("o-layers", 20m));
+
+        // The first requeue acted on a different first answer (as one asked afresh after the
+        // original's stopped fitting would), then died before its second asking.
+        Decider.Use(new SequenceDecider());
+        var (firstRequeue, _) = await Run<IRouteTwice>(
+            new Order("o-layers", 20m),
+            replayDecisionsOf: original.Metadata!.Id
+        );
+        await Rewrite(
+            firstRequeue.Metadata!.Id,
+            d => d.Answer = d.Answer.Replace("ManualCheck", "Standard")
+        );
+        await Forget(firstRequeue.Metadata.Id, occurrence: 1);
+
+        var decider = Decider.Use(new SequenceDecider(Fulfilment.Standard, Fulfilment.Standard));
+
+        var (requeued, output) = await Run<IRouteTwice>(
+            new Order("o-layers", 20m),
+            replayDecisionsOf: firstRequeue.Metadata.Id
+        );
+
+        output.Should().Be("held for review", "the second asking repeats the original's answer");
+        decider.Asked.Should().Be(0);
+        (await Recorded(requeued.Metadata!.Id))
+            .OrderBy(d => d.Occurrence)
+            .Select(d => (d.Occurrence, d.Track, d.Replayed))
+            .Should()
+            .Equal((0, "Standard", true), (1, "ManualCheck", true));
+    }
+
+    [Test]
+    public async Task A_replay_whose_runs_lead_back_on_themselves_fails_the_run_as_permanent()
+    {
+        var first = await Seed<IRouteOrder>(replayDecisionsOf: null);
+        var second = await Seed<IRouteOrder>(replayDecisionsOf: first);
+        await Relink(first, second);
+
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+        var (train, run) = Start<IRouteOrder>(new Order("o-loop", 20m), replayDecisionsOf: second);
+
+        (await run.Should().ThrowAsync<TrainException>())
+            .Which.Message.Should()
+            .Contain($"lead back to run {second}");
+        decider.Requests.Should().BeEmpty();
+        train.Metadata!.FailureClass.Should().Be(FailureClass.Permanent);
+    }
+
+    [Test]
+    public async Task A_replay_that_goes_back_too_many_runs_fails_the_run_as_permanent()
+    {
+        long? previous = null;
+
+        for (var i = 0; i <= DecisionJournal.MaxReplayChain; i++)
+            previous = await Seed<IRouteOrder>(replayDecisionsOf: previous);
+
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+        var (train, run) = Start<IRouteOrder>(
+            new Order("o-deep", 20m),
+            replayDecisionsOf: previous
+        );
+
+        (await run.Should().ThrowAsync<TrainException>())
+            .Which.Message.Should()
+            .Contain($"more than {DecisionJournal.MaxReplayChain} runs");
+        decider.Requests.Should().BeEmpty();
+        train.Metadata!.FailureClass.Should().Be(FailureClass.Permanent);
+    }
+
+    [Test]
     public async Task A_replay_of_a_run_that_reached_fewer_questions_asks_the_rest_afresh()
     {
         Decider.Use(new SequenceDecider(Fulfilment.ManualCheck, Fulfilment.ManualCheck));
@@ -463,6 +561,37 @@ public class DecisionRecordingTests
     }
 
     private static string Id() => Guid.NewGuid().ToString("N");
+
+    /// <summary>A run of <typeparamref name="TTrain"/> that never reached a question.</summary>
+    private async Task<long> Seed<TTrain>(long? replayDecisionsOf)
+    {
+        using var scope = _provider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<IDataContext>();
+
+        var metadata = Metadata.Create(
+            new CreateMetadata
+            {
+                Name = typeof(TTrain).FullName!,
+                ExternalId = Id(),
+                Input = new Order("seeded", 1m),
+                ReplayDecisionsOf = replayDecisionsOf,
+            }
+        );
+
+        context.Metadatas.Add(metadata);
+        await context.SaveChanges(CancellationToken.None);
+        return metadata.Id;
+    }
+
+    private async Task Relink(long metadataId, long replayDecisionsOf)
+    {
+        using var scope = _provider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<IDataContext>();
+
+        var metadata = await context.Metadatas.SingleAsync(m => m.Id == metadataId);
+        metadata.ReplayDecisionsOf = replayDecisionsOf;
+        await context.SaveChanges(CancellationToken.None);
+    }
 
     private async Task Forget(long metadataId, int occurrence)
     {
