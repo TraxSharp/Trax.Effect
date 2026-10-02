@@ -1,9 +1,11 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using Trax.Core.Decisions;
 using Trax.Core.Exceptions;
 
@@ -35,7 +37,7 @@ namespace Trax.Effect.Decisions.SystemOne;
 /// or its TLS handshake fails) are classified permanent and not retried. Cancelling the train
 /// cancels the request.</para>
 /// </remarks>
-public sealed class SystemOneDecider : IDecider, IDisposable
+public sealed class SystemOneDecider : IDecider, IVetsQuestions, IDisposable
 {
     private static readonly JsonSerializerOptions StateJson = new(JsonSerializerDefaults.Web);
 
@@ -117,13 +119,8 @@ public sealed class SystemOneDecider : IDecider, IDisposable
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        if (request.Questions.Count > _options.MaxQuestions)
-            throw Refused(
-                request,
-                $"it asks {request.Questions.Count} questions in one request, and the model "
-                    + $"accepts at most {_options.MaxQuestions}. Split the Decide",
-                FailureClass.Permanent
-            );
+        if (TooManyQuestions(request.Questions.Count) is { } tooMany)
+            throw Refused(request, tooMany, FailureClass.Permanent);
 
         string body;
 
@@ -244,6 +241,34 @@ public sealed class SystemOneDecider : IDecider, IDisposable
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// What the model refuses whatever the state: more questions in one request than
+    /// <see cref="SystemOneOptions.MaxQuestions"/>, a question with no instructions, fewer than two
+    /// or more than <see cref="SystemOneOptions.MaxOptions"/> options or levels, an option named
+    /// twice, a kind of question the format cannot ask, and a state type JSON writes as a number,
+    /// true or false. What depends on the value (a state written as null, or one that cannot be
+    /// written at all) is still refused when the request is about to be sent.
+    /// </remarks>
+    public IEnumerable<string> Problems(DeclaredQuestions declared)
+    {
+        ArgumentNullException.ThrowIfNull(declared);
+
+        if (TooManyQuestions(declared.Questions.Count) is { } tooMany)
+            yield return tooMany;
+
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var question in declared.Questions)
+            if (!keys.Add(question.Key))
+                yield return KeyUsedTwice(question);
+            else if (QuestionProblem(question) is { } problem)
+                yield return problem;
+
+        if (StateTypeProblem(declared.State) is { } state)
+            yield return state;
+    }
+
+    /// <inheritdoc />
     public void Dispose()
     {
         // The container can hold this under both its own type and IDecider, and disposes each.
@@ -289,16 +314,10 @@ public sealed class SystemOneDecider : IDecider, IDisposable
         foreach (var question in request.Questions)
         {
             if (questions.ContainsKey(question.Key))
-                throw new Unsendable(
-                    $"it asks the question '{question.Key}' more than once. Each question needs "
-                        + "a distinct key"
-                );
+                throw new Unsendable(KeyUsedTwice(question));
 
-            if (string.IsNullOrWhiteSpace(question.Instructions))
-                throw new Unsendable(
-                    $"the question '{question.Key}' has no instructions, and the model refuses a "
-                        + "question it is not told how to answer"
-                );
+            if (QuestionProblem(question) is { } problem)
+                throw new Unsendable(problem);
 
             questions[question.Key] = question switch
             {
@@ -307,10 +326,9 @@ public sealed class SystemOneDecider : IDecider, IDisposable
                     ["type"] = "choice",
                     ["instructions"] = choice.Instructions,
                     ["criteria"] = new JsonObject(
-                        Distinct(choice, Limit(choice, choice.Options, "option"))
-                            .Select(o =>
-                                KeyValuePair.Create(o.Name, (JsonNode?)(o.Description ?? o.Name))
-                            )
+                        choice.Options.Select(o =>
+                            KeyValuePair.Create(o.Name, (JsonNode?)(o.Description ?? o.Name))
+                        )
                     ),
                 },
                 ScoreQuestion score => new JsonObject
@@ -318,9 +336,7 @@ public sealed class SystemOneDecider : IDecider, IDisposable
                     ["type"] = "score",
                     ["instructions"] = score.Instructions,
                     ["criteria"] = new JsonArray(
-                        Limit(score, score.Levels, "level")
-                            .Select(l => (JsonNode?)(l.Description ?? l.Name))
-                            .ToArray()
+                        score.Levels.Select(l => (JsonNode?)(l.Description ?? l.Name)).ToArray()
                     ),
                 },
                 YesNoQuestion yesNo => new JsonObject
@@ -333,10 +349,7 @@ public sealed class SystemOneDecider : IDecider, IDisposable
                         ["false"] = yesNo.No ?? "No",
                     },
                 },
-                _ => throw new Unsendable(
-                    $"the question '{question.Key}' is a {question.GetType().Name}, which the "
-                        + "System One format cannot ask"
-                ),
+                _ => throw new Unsendable(CannotAsk(question)),
             };
         }
 
@@ -346,6 +359,70 @@ public sealed class SystemOneDecider : IDecider, IDisposable
             ["state"] = State(request.State),
             ["questions"] = questions,
         };
+    }
+
+    private string? TooManyQuestions(int count) =>
+        count > _options.MaxQuestions
+            ? $"it asks {count} questions in one request, and the model accepts at most "
+                + $"{_options.MaxQuestions}. Split the Decide"
+            : null;
+
+    private static string KeyUsedTwice(Question question) =>
+        $"it asks the question '{question.Key}' more than once. Each question needs a distinct key";
+
+    private static string CannotAsk(Question question) =>
+        $"the question '{question.Key}' is a {question.GetType().Name}, which the System One "
+        + "format cannot ask";
+
+    /// <summary>
+    /// Why the model would refuse <paramref name="question"/> whatever the state, or null.
+    /// </summary>
+    private string? QuestionProblem(Question question)
+    {
+        if (string.IsNullOrWhiteSpace(question.Instructions))
+            return $"the question '{question.Key}' has no instructions, and the model refuses a "
+                + "question it is not told how to answer";
+
+        return question switch
+        {
+            ChoiceQuestion choice => CountProblem(choice, choice.Options, "option")
+                ?? NamedTwice(choice),
+            ScoreQuestion score => CountProblem(score, score.Levels, "level"),
+            YesNoQuestion => null,
+            _ => CannotAsk(question),
+        };
+    }
+
+    /// <summary>
+    /// Why the options or levels are too few to choose between or more than the model accepts, or
+    /// null.
+    /// </summary>
+    private string? CountProblem(
+        Question question,
+        IReadOnlyList<Criterion> criteria,
+        string noun
+    ) =>
+        criteria.Count switch
+        {
+            < 2 => $"the question '{question.Key}' offers {criteria.Count} "
+                + $"{(criteria.Count == 1 ? noun : noun + "s")}, and the model needs at least 2 to "
+                + "choose between",
+            var count when count > _options.MaxOptions =>
+                $"the question '{question.Key}' offers {count} {noun}s, and the model accepts at "
+                    + $"most {_options.MaxOptions}",
+            _ => null,
+        };
+
+    private static string? NamedTwice(ChoiceQuestion question)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var option in question.Options)
+            if (!seen.Add(option.Name))
+                return $"the question '{question.Key}' offers the option '{option.Name}' more than "
+                    + "once. Each option needs a distinct name";
+
+        return null;
     }
 
     /// <summary>
@@ -381,44 +458,44 @@ public sealed class SystemOneDecider : IDecider, IDisposable
     }
 
     /// <summary>
-    /// The options or levels, when there are enough to choose between and no more than the model
-    /// accepts.
+    /// Why a state of <paramref name="type"/> is always written as something the format does not
+    /// take, a number, true or false, or null when it may be written as a string, an object or an
+    /// array.
     /// </summary>
-    private IReadOnlyList<Criterion> Limit(
-        Question question,
-        IReadOnlyList<Criterion> criteria,
-        string noun
-    ) =>
-        criteria.Count switch
-        {
-            < 2 => throw new Unsendable(
-                $"the question '{question.Key}' offers {criteria.Count} "
-                    + $"{(criteria.Count == 1 ? noun : noun + "s")}, and the model needs at least "
-                    + $"2 to choose between"
-            ),
-            var count when count > _options.MaxOptions => throw new Unsendable(
-                $"the question '{question.Key}' offers {count} {noun}s, and the model accepts at "
-                    + $"most {_options.MaxOptions}"
-            ),
-            _ => criteria,
-        };
-
-    private static IReadOnlyList<Criterion> Distinct(
-        Question question,
-        IReadOnlyList<Criterion> options
-    )
+    private static string? StateTypeProblem(Type type)
     {
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var underlying = Nullable.GetUnderlyingType(type) ?? type;
 
-        foreach (var option in options)
-            if (!seen.Add(option.Name))
-                throw new Unsendable(
-                    $"the question '{question.Key}' offers the option '{option.Name}' more than "
-                        + "once. Each option needs a distinct name"
-                );
+        string? written =
+            underlying == typeof(bool) ? "true or false"
+            : IsNumber(underlying) ? "a number"
+            // The options have no enum converter, so an enum is written as its number unless the
+            // type names a converter of its own.
+            : underlying.IsEnum && underlying.GetCustomAttribute<JsonConverterAttribute>() is null
+                ? "a number"
+            : null;
 
-        return options;
+        return written is null
+            ? null
+            : $"its state, a '{underlying.Name}', is written as JSON {written}, and the model takes a "
+                + "string, an object or an array. Decide from a type that holds the value";
     }
+
+    private static bool IsNumber(Type type) =>
+        type == typeof(byte)
+        || type == typeof(sbyte)
+        || type == typeof(short)
+        || type == typeof(ushort)
+        || type == typeof(int)
+        || type == typeof(uint)
+        || type == typeof(long)
+        || type == typeof(ulong)
+        || type == typeof(Int128)
+        || type == typeof(UInt128)
+        || type == typeof(Half)
+        || type == typeof(float)
+        || type == typeof(double)
+        || type == typeof(decimal);
 
     /// <summary>
     /// Reads the answers out of a response. An answer that cannot be read is left out, so the
