@@ -13,7 +13,8 @@ public static class DecisionReplays
     /// rather than be queued as an ordinary run that asks afresh.
     /// </summary>
     /// <remarks>
-    /// True when the run recorded a decision, or was itself queued to replay another run's. The
+    /// True when the run recorded a decision it acted on (an answer it refused does not count, since
+    /// it is never replayed), or was itself queued to replay another run's. The
     /// second matters for a requeue of a requeue: one that failed before it reached a question
     /// recorded nothing, but the answers of the run it replayed are still the ones to repeat, and
     /// the replay follows <c>replay_decisions_of</c> back to them. False for a run of a train that
@@ -36,6 +37,6 @@ public static class DecisionReplays
         return replays is not null
             || await context
                 .RecordedDecisions.AsNoTracking()
-                .AnyAsync(d => d.MetadataId == metadataId, cancellationToken);
+                .AnyAsync(d => d.MetadataId == metadataId && d.Refused == null, cancellationToken);
     }
 }

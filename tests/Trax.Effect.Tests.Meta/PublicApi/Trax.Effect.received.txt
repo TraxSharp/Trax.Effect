@@ -824,7 +824,7 @@ namespace Trax.Effect.Models.RecordedDecision
     {
         public RecordedDecision() { }
         [System.ComponentModel.DataAnnotations.Schema.Column("answer")]
-        public string Answer { get; set; }
+        public string? Answer { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("decided_at")]
         public System.DateTime DecidedAt { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("decider")]
@@ -845,6 +845,8 @@ namespace Trax.Effect.Models.RecordedDecision
         public string Question { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("question_key")]
         public string QuestionKey { get; set; }
+        [System.ComponentModel.DataAnnotations.Schema.Column("refused")]
+        public string? Refused { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("replayed")]
         public bool Replayed { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("routes")]

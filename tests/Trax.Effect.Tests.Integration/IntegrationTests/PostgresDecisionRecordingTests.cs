@@ -51,7 +51,8 @@ public class PostgresDecisionRecordingTests
         );
         services
             .AddScopedTraxRoute<IPgRouteOrder, PgRouteOrder>()
-            .AddScopedTraxRoute<IPgRouteThenPeek, PgRouteThenPeek>();
+            .AddScopedTraxRoute<IPgRouteThenPeek, PgRouteThenPeek>()
+            .AddScopedTraxRoute<IPgUnanswered, PgUnanswered>();
         _provider = services.BuildServiceProvider();
     }
 
@@ -132,6 +133,53 @@ public class PostgresDecisionRecordingTests
         await Delete(_lastTrain.Metadata.Id);
     }
 
+    [Test]
+    public async Task A_refused_answer_is_a_row_with_why_and_its_requeue_asks_afresh()
+    {
+        Decider.Raw = "Banana";
+        var refuse = async () => await Run<IPgRouteOrder>();
+
+        (await refuse.Should().ThrowAsync<TrainException>())
+            .Which.Message.Should()
+            .Contain("'Banana', which is not one of its options");
+        var original = _lastTrain!;
+        original.Metadata!.FailureClass.Should().Be(FailureClass.Transient);
+
+        var refused = (await Recorded(original.Metadata.Id)).Should().ContainSingle().Subject;
+        refused.QuestionKey.Should().Be(QuestionKey.For<PgFulfilment>());
+        refused.Answer.Should().Contain("Banana");
+        refused.Refused.Should().Contain("'Banana', which is not one of its options");
+        refused.Tracks().Should().BeEmpty();
+
+        Decider.Raw = null;
+        Decider.Choice = PgFulfilment.ManualCheck;
+        Decider.Asked = 0;
+        var (requeued, output) = await Run<IPgRouteOrder>(replayDecisionsOf: original.Metadata.Id);
+
+        output.Should().Be("held");
+        Decider.Asked.Should().Be(1, "a refused answer is never replayed");
+        var asked = (await Recorded(requeued.Metadata!.Id)).Should().ContainSingle().Subject;
+        asked.Replayed.Should().BeFalse();
+        asked.Refused.Should().BeNull();
+        asked.Answer.Should().NotContain("replay_refused");
+
+        await Delete(original.Metadata.Id, requeued.Metadata.Id);
+    }
+
+    [Test]
+    public async Task A_missing_answer_is_a_refused_row_with_no_answer()
+    {
+        Decider.Raw = null;
+        var refuse = async () => await Run<IPgUnanswered>();
+
+        await refuse.Should().ThrowAsync<TrainException>();
+        var row = (await Recorded(_lastTrain!.Metadata!.Id)).Should().ContainSingle().Subject;
+        row.Answer.Should().BeNull();
+        row.Refused.Should().Contain("gave no answer");
+
+        await Delete(_lastTrain.Metadata.Id);
+    }
+
     private IServiceTrain<PgOrder, string>? _lastTrain;
 
     private async Task<(IServiceTrain<PgOrder, string> Train, string Output)> Run<TTrain>(
@@ -190,6 +238,9 @@ public class PostgresDecisionRecordingTests
     {
         public PgFulfilment Choice { get; set; }
 
+        /// <summary>A choice to answer with in place of <see cref="Choice"/>, fitting or not.</summary>
+        public string? Raw { get; set; }
+
         public int Asked { get; set; }
 
         public Task<DecisionResult> Decide(DecisionRequest request, CancellationToken ct)
@@ -200,7 +251,9 @@ public class PostgresDecisionRecordingTests
                 new DecisionResult(
                     new Dictionary<string, Answer>
                     {
-                        [QuestionKey.For<PgFulfilment>()] = new ChoiceAnswer(Choice.ToString()),
+                        [QuestionKey.For<PgFulfilment>()] = new ChoiceAnswer(
+                            Raw ?? Choice.ToString()
+                        ),
                     }
                 )
             );
@@ -225,6 +278,27 @@ public class PostgresDecisionRecordingTests
                     tracks
                         .When(PgFulfilment.Standard, t => t.Chain<PgShip>())
                         .When(PgFulfilment.ManualCheck, t => t.Chain<PgHold>())
+                )
+                .Resolve();
+    }
+
+    [Asks("How soon must this order ship?")]
+    public enum PgPriority
+    {
+        Normal,
+        Rush,
+    }
+
+    /// <summary>Asks a question the decider never answers.</summary>
+    public interface IPgUnanswered : IServiceTrain<PgOrder, string>;
+
+    public class PgUnanswered : ServiceTrain<PgOrder, string>, IPgUnanswered
+    {
+        protected override Task<Either<Exception, string>> Junctions() =>
+            Switch<PgOrder, PgPriority>(tracks =>
+                    tracks
+                        .When(PgPriority.Normal, t => t.Chain<PgShip>())
+                        .When(PgPriority.Rush, t => t.Chain<PgHold>())
                 )
                 .Resolve();
     }

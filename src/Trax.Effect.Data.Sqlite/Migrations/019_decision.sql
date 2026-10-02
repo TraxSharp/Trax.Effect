@@ -7,13 +7,15 @@ CREATE TABLE IF NOT EXISTS decision (
     fingerprint TEXT NOT NULL,
     kind TEXT NOT NULL,
     question TEXT NOT NULL,
-    answer TEXT NOT NULL,
+    answer TEXT,
     model TEXT,
     decider TEXT,
     replayed INTEGER NOT NULL DEFAULT 0,
     shadows TEXT,
     routes TEXT,
     decided_at TEXT NOT NULL,
+    refused TEXT,
+    CHECK (answer IS NOT NULL OR refused IS NOT NULL),
     UNIQUE (metadata_id, question_key, occurrence)
 );
 

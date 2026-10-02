@@ -8,7 +8,8 @@ namespace Trax.Effect.Models.RecordedDecision;
 /// </summary>
 /// <remarks>
 /// Written by <c>AddDecisionRecording</c> as each decision is made, before the run acts on it, so
-/// a run that dies mid-way leaves what it decided; each track is added to <see cref="Routes"/> when
+/// a run that dies mid-way leaves what it decided, and so is a decider's answer the run refused,
+/// with the reason in <see cref="Refused"/>; each track is added to <see cref="Routes"/> when
 /// a routing step takes one. Read back to replay a run's decisions when it is requeued. EF Core mapping lives in
 /// <c>Trax.Effect.Data.Models.RecordedDecision.PersistentRecordedDecision</c>; the table
 /// ships in the core migration set (Postgres <c>054</c>, Sqlite <c>019</c>) and is deleted with
@@ -45,10 +46,20 @@ public class RecordedDecision
 
     /// <summary>
     /// The answer the run acted on, as JSON. Carries <c>replay_refused</c> when an earlier run's
-    /// answer to the question no longer fitted it and the decider was asked afresh.
+    /// answer to the question no longer fitted it and the decider was asked afresh. For a
+    /// <see cref="Refused"/> row it is the answer the run would not act on, or null when the
+    /// decider gave none.
     /// </summary>
     [Column("answer")]
-    public string Answer { get; set; } = null!;
+    public string? Answer { get; set; }
+
+    /// <summary>
+    /// Why the run would not act on the decider's answer, or null for an answer it acted on. A
+    /// refused row is the last thing its run decided: the step failed on it, and it is never
+    /// replayed, so a requeue of the run asks the question afresh.
+    /// </summary>
+    [Column("refused")]
+    public string? Refused { get; set; }
 
     /// <summary>
     /// Identifies the asking the answer was given to, as Trax.Core computed it: 64 lowercase hex

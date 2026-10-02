@@ -99,6 +99,68 @@ public sealed class DecisionJournal(
         run.Latest[record.QuestionKey] = record.Id;
     }
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// Written as a row with <see cref="RecordedDecision.Refused"/> set, so the answer the run would
+    /// not act on, and why, sit next to the failed step. A refused row is never replayed: the run
+    /// that failed on it is a different run from its requeue, which asks the question afresh. An
+    /// answer that cannot be written as JSON is recorded as null, with the reason saying so.
+    /// </remarks>
+    public async Task Refused(DecisionRefused refusal, CancellationToken cancellationToken)
+    {
+        _logger.LogWarning(
+            "Train {Train} (run {RunId}) refused the answer to {Question}: {Answer} by {Decider}, because {Reason}",
+            refusal.Train,
+            refusal.RunId,
+            refusal.Question.Key,
+            refusal.Answer is null ? "no answer" : Describe(refusal.Answer),
+            refusal.Decider.Name,
+            refusal.Reason
+        );
+
+        if (Bound(refusal.Train, refusal.RunId) is not { MetadataId: { } metadataId })
+            return;
+
+        string? answer = null;
+        var reason = refusal.Reason;
+
+        if (refusal.Answer is { } given)
+            try
+            {
+                answer = DecisionJson.Write(given);
+            }
+            catch (NotSupportedException e)
+            {
+                reason = $"{reason}; the answer itself could not be recorded: {e.Message}";
+            }
+
+        var record = new RecordedDecision
+        {
+            MetadataId = metadataId,
+            QuestionKey = refusal.Question.Key,
+            Occurrence = refusal.Occurrence,
+            Fingerprint = refusal.Fingerprint,
+            Kind = DecisionJson.Kind(refusal.Question),
+            Question = DecisionJson.Write(refusal.Question),
+            Answer = answer,
+            Model = refusal.Answer?.Model,
+            Decider = refusal.Decider.FullName,
+            Refused = reason,
+            DecidedAt = DateTime.UtcNow,
+        };
+
+        await Write(
+            refusal.Train,
+            refusal.RunId,
+            async context =>
+            {
+                context.RecordedDecisions.Add(record);
+                await context.SaveChanges(cancellationToken);
+            },
+            cancellationToken
+        );
+    }
+
     /// <summary>The answer for the log, which must not fail on an answer that cannot be recorded.</summary>
     private static string Describe(Answer answer)
     {
@@ -236,7 +298,7 @@ public sealed class DecisionJournal(
             string Key,
             int Occurrence,
             string Fingerprint,
-            string Answer
+            string? Answer
         )> recorded;
 
         try
@@ -310,7 +372,8 @@ public sealed class DecisionJournal(
             recorded = broken is not null ? [] : (
                     await context
                         .RecordedDecisions.AsNoTracking()
-                        .Where(d => chain.Contains(d.MetadataId))
+                        // A refused answer was never acted on, so there is nothing of it to repeat.
+                        .Where(d => chain.Contains(d.MetadataId) && d.Refused == null)
                         .Select(d => new
                         {
                             d.MetadataId,
@@ -356,7 +419,8 @@ public sealed class DecisionJournal(
             try
             {
                 answers[(key, occurrence)] = new RecordedAnswer(
-                    DecisionJson.ReadAnswer(answer),
+                    // A row with neither an answer nor a refusal is damaged, and read as such.
+                    DecisionJson.ReadAnswer(answer ?? "null"),
                     fingerprint
                 );
             }

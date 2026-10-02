@@ -301,7 +301,7 @@ public class DecisionRecordingTests
         );
         await Rewrite(
             firstRequeue.Metadata!.Id,
-            d => d.Answer = d.Answer.Replace("ManualCheck", "Standard")
+            d => d.Answer = d.Answer?.Replace("ManualCheck", "Standard")
         );
         await Forget(firstRequeue.Metadata.Id, occurrence: 1);
 
@@ -609,6 +609,100 @@ public class DecisionRecordingTests
         (await context.HasDecisionsToReplay(987_654_322, CancellationToken.None))
             .Should()
             .BeFalse();
+    }
+
+    [Test]
+    public async Task An_answer_the_run_refuses_is_recorded_with_why_and_takes_no_track()
+    {
+        var decider = Decider.Use(
+            new ScriptedDecider().Answer(
+                QuestionKey.For<Fulfilment>(),
+                _ => new ChoiceAnswer("Banana", 0.9) { Model = "jev-1.13.0" }
+            )
+        );
+        Ship.Ran = 0;
+
+        var (train, run) = Start<IRouteOrder>(new Order("o-refused", 20m));
+
+        (await run.Should().ThrowAsync<TrainException>())
+            .Which.Message.Should()
+            .Contain("'Banana', which is not one of its options");
+        train.Metadata!.FailureClass.Should().Be(FailureClass.Transient);
+        Ship.Ran.Should().Be(0);
+        decider.Requests.Should().ContainSingle();
+
+        var row = (await Recorded(train.Metadata.Id)).Should().ContainSingle().Subject;
+        row.QuestionKey.Should().Be(QuestionKey.For<Fulfilment>());
+        row.Occurrence.Should().Be(0);
+        row.Fingerprint.Should().MatchRegex("^[0-9a-f]{64}$");
+        row.Answer.Should().Contain("\"choice\":\"Banana\"");
+        row.Model.Should().Be("jev-1.13.0");
+        row.Decider.Should().Be(typeof(DeciderSlot).FullName);
+        row.Refused.Should()
+            .Be(
+                $"the decider answered '{QuestionKey.For<Fulfilment>()}' with 'Banana', which is "
+                    + "not one of its options"
+            );
+        row.Replayed.Should().BeFalse();
+        row.Routes.Should().BeNull("no track was taken on it");
+    }
+
+    [Test]
+    public async Task A_missing_answer_is_recorded_as_refused_with_no_answer()
+    {
+        Decider.Use(new ScriptedDecider());
+
+        var (train, run) = Start<IRouteOrder>(new Order("o-unanswered", 20m));
+
+        await run.Should().ThrowAsync<TrainException>();
+        var row = (await Recorded(train.Metadata!.Id)).Should().ContainSingle().Subject;
+        row.Answer.Should().BeNull();
+        row.Refused.Should().Be($"the decider gave no answer to '{QuestionKey.For<Fulfilment>()}'");
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task A_requeue_of_a_run_that_failed_on_a_refused_answer_asks_afresh(bool answered)
+    {
+        Decider.Use(
+            answered
+                ? new ScriptedDecider().Answer(
+                    QuestionKey.For<Fulfilment>(),
+                    _ => new ChoiceAnswer("Banana")
+                )
+                : new ScriptedDecider()
+        );
+        var (original, failing) = Start<IRouteOrder>(new Order("o-refused-requeue", 20m));
+        await failing.Should().ThrowAsync<TrainException>();
+
+        using (var scope = _provider.CreateScope())
+            (
+                await scope
+                    .ServiceProvider.GetRequiredService<IDataContext>()
+                    .HasDecisionsToReplay(original.Metadata!.Id, CancellationToken.None)
+            )
+                .Should()
+                .BeFalse("a refused answer is nothing to replay");
+
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+
+        var (requeued, output) = await Run<IRouteOrder>(
+            new Order("o-refused-requeue", 20m),
+            replayDecisionsOf: original.Metadata!.Id
+        );
+
+        output.Should().Be("shipped");
+        decider.Requests.Should().ContainSingle("the refused answer is not replayed");
+        var row = (await Recorded(requeued.Metadata!.Id)).Should().ContainSingle().Subject;
+        row.Replayed.Should().BeFalse();
+        row.Refused.Should().BeNull();
+        row.Answer.Should()
+            .NotContain("replay_refused", "the refused answer was never offered for replay");
+        (await Recorded(original.Metadata.Id))
+            .Should()
+            .ContainSingle()
+            .Which.Refused.Should()
+            .NotBeNull("the failed run keeps its own record");
     }
 
     [Test]

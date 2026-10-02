@@ -47,7 +47,8 @@ public class SqliteDecisionRecordingTests
         );
         services
             .AddScopedTraxRoute<ILiteRouteOrder, LiteRouteOrder>()
-            .AddScopedTraxRoute<ILiteRouteThenPeek, LiteRouteThenPeek>();
+            .AddScopedTraxRoute<ILiteRouteThenPeek, LiteRouteThenPeek>()
+            .AddScopedTraxRoute<ILiteUnanswered, LiteUnanswered>();
         _provider = services.BuildServiceProvider();
     }
 
@@ -137,6 +138,55 @@ public class SqliteDecisionRecordingTests
         await Delete(_lastTrain.Metadata.Id);
     }
 
+    [Test]
+    public async Task A_refused_answer_is_a_row_with_why_and_its_requeue_asks_afresh()
+    {
+        Decider.Raw = "Banana";
+        var refuse = async () => await Run<ILiteRouteOrder>();
+
+        (await refuse.Should().ThrowAsync<TrainException>())
+            .Which.Message.Should()
+            .Contain("'Banana', which is not one of its options");
+        var original = _lastTrain!;
+        original.Metadata!.FailureClass.Should().Be(FailureClass.Transient);
+
+        var refused = (await Recorded(original.Metadata.Id)).Should().ContainSingle().Subject;
+        refused.QuestionKey.Should().Be(QuestionKey.For<LiteFulfilment>());
+        refused.Answer.Should().Contain("Banana");
+        refused.Refused.Should().Contain("'Banana', which is not one of its options");
+        refused.Tracks().Should().BeEmpty();
+
+        Decider.Raw = null;
+        Decider.Choice = LiteFulfilment.ManualCheck;
+        Decider.Asked = 0;
+        var (requeued, output) = await Run<ILiteRouteOrder>(
+            replayDecisionsOf: original.Metadata.Id
+        );
+
+        output.Should().Be("held");
+        Decider.Asked.Should().Be(1, "a refused answer is never replayed");
+        var asked = (await Recorded(requeued.Metadata!.Id)).Should().ContainSingle().Subject;
+        asked.Replayed.Should().BeFalse();
+        asked.Refused.Should().BeNull();
+        asked.Answer.Should().NotContain("replay_refused");
+
+        await Delete(original.Metadata.Id, requeued.Metadata.Id);
+    }
+
+    [Test]
+    public async Task A_missing_answer_is_a_refused_row_with_no_answer()
+    {
+        Decider.Raw = null;
+        var refuse = async () => await Run<ILiteUnanswered>();
+
+        await refuse.Should().ThrowAsync<TrainException>();
+        var row = (await Recorded(_lastTrain!.Metadata!.Id)).Should().ContainSingle().Subject;
+        row.Answer.Should().BeNull();
+        row.Refused.Should().Contain("gave no answer");
+
+        await Delete(_lastTrain.Metadata.Id);
+    }
+
     private IServiceTrain<LiteOrder, string>? _lastTrain;
 
     private async Task<(IServiceTrain<LiteOrder, string> Train, string Output)> Run<TTrain>(
@@ -195,6 +245,9 @@ public class SqliteDecisionRecordingTests
     {
         public LiteFulfilment Choice { get; set; }
 
+        /// <summary>A choice to answer with in place of <see cref="Choice"/>, fitting or not.</summary>
+        public string? Raw { get; set; }
+
         public int Asked { get; set; }
 
         public Task<DecisionResult> Decide(DecisionRequest request, CancellationToken ct)
@@ -205,7 +258,9 @@ public class SqliteDecisionRecordingTests
                 new DecisionResult(
                     new Dictionary<string, Answer>
                     {
-                        [QuestionKey.For<LiteFulfilment>()] = new ChoiceAnswer(Choice.ToString()),
+                        [QuestionKey.For<LiteFulfilment>()] = new ChoiceAnswer(
+                            Raw ?? Choice.ToString()
+                        ),
                     }
                 )
             );
@@ -230,6 +285,27 @@ public class SqliteDecisionRecordingTests
                     tracks
                         .When(LiteFulfilment.Standard, t => t.Chain<LiteShip>())
                         .When(LiteFulfilment.ManualCheck, t => t.Chain<LiteHold>())
+                )
+                .Resolve();
+    }
+
+    [Asks("How soon must this order ship?")]
+    public enum LitePriority
+    {
+        Normal,
+        Rush,
+    }
+
+    /// <summary>Asks a question the decider never answers.</summary>
+    public interface ILiteUnanswered : IServiceTrain<LiteOrder, string>;
+
+    public class LiteUnanswered : ServiceTrain<LiteOrder, string>, ILiteUnanswered
+    {
+        protected override Task<Either<Exception, string>> Junctions() =>
+            Switch<LiteOrder, LitePriority>(tracks =>
+                    tracks
+                        .When(LitePriority.Normal, t => t.Chain<LiteShip>())
+                        .When(LitePriority.Rush, t => t.Chain<LiteHold>())
                 )
                 .Resolve();
     }
