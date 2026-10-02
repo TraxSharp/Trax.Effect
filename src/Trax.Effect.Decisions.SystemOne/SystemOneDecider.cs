@@ -293,6 +293,12 @@ public sealed class SystemOneDecider : IDecider, IDisposable
                         + "a distinct key"
                 );
 
+            if (string.IsNullOrWhiteSpace(question.Instructions))
+                throw new Unsendable(
+                    $"the question '{question.Key}' has no instructions, and the model refuses a "
+                        + "question it is not told how to answer"
+                );
+
             questions[question.Key] = question switch
             {
                 ChoiceQuestion choice => new JsonObject
@@ -300,7 +306,7 @@ public sealed class SystemOneDecider : IDecider, IDisposable
                     ["type"] = "choice",
                     ["instructions"] = choice.Instructions,
                     ["criteria"] = new JsonObject(
-                        Distinct(choice, Limit(choice, choice.Options))
+                        Distinct(choice, Limit(choice, choice.Options, "option"))
                             .Select(o =>
                                 KeyValuePair.Create(o.Name, (JsonNode?)(o.Description ?? o.Name))
                             )
@@ -311,7 +317,7 @@ public sealed class SystemOneDecider : IDecider, IDisposable
                     ["type"] = "score",
                     ["instructions"] = score.Instructions,
                     ["criteria"] = new JsonArray(
-                        Limit(score, score.Levels)
+                        Limit(score, score.Levels, "level")
                             .Select(l => (JsonNode?)(l.Description ?? l.Name))
                             .ToArray()
                     ),
@@ -341,28 +347,60 @@ public sealed class SystemOneDecider : IDecider, IDisposable
         };
     }
 
-    private static JsonNode? State(object state)
+    /// <summary>
+    /// The state as the format takes it: a string, an object or an array. A state that is written
+    /// as a bare number, true, false or null is refused before it is sent, as the model would
+    /// refuse it.
+    /// </summary>
+    private static JsonNode State(object? state)
     {
         if (state is string text)
             return JsonValue.Create(text);
 
+        JsonNode? node;
+
         try
         {
-            return JsonSerializer.SerializeToNode(state, StateJson);
+            node = JsonSerializer.SerializeToNode(state, StateJson);
         }
         catch (Exception e) when (e is JsonException or NotSupportedException)
         {
             throw new Unsendable($"its state cannot be written as JSON: {e.Message}");
         }
+
+        return node?.GetValueKind() switch
+        {
+            JsonValueKind.Object or JsonValueKind.Array or JsonValueKind.String => node,
+            var kind => throw new Unsendable(
+                $"its state is written as JSON {(kind is null ? "null" : $"{kind}".ToLowerInvariant())}, "
+                    + "and the model takes a string, an object or an array. Decide from a type "
+                    + "that holds the value"
+            ),
+        };
     }
 
-    private IReadOnlyList<Criterion> Limit(Question question, IReadOnlyList<Criterion> criteria) =>
-        criteria.Count <= _options.MaxOptions
-            ? criteria
-            : throw new Unsendable(
-                $"the question '{question.Key}' offers {criteria.Count} options, and the model "
-                    + $"accepts at most {_options.MaxOptions}"
-            );
+    /// <summary>
+    /// The options or levels, when there are enough to choose between and no more than the model
+    /// accepts.
+    /// </summary>
+    private IReadOnlyList<Criterion> Limit(
+        Question question,
+        IReadOnlyList<Criterion> criteria,
+        string noun
+    ) =>
+        criteria.Count switch
+        {
+            < 2 => throw new Unsendable(
+                $"the question '{question.Key}' offers {criteria.Count} "
+                    + $"{(criteria.Count == 1 ? noun : noun + "s")}, and the model needs at least "
+                    + $"2 to choose between"
+            ),
+            var count when count > _options.MaxOptions => throw new Unsendable(
+                $"the question '{question.Key}' offers {count} {noun}s, and the model accepts at "
+                    + $"most {_options.MaxOptions}"
+            ),
+            _ => criteria,
+        };
 
     private static IReadOnlyList<Criterion> Distinct(
         Question question,

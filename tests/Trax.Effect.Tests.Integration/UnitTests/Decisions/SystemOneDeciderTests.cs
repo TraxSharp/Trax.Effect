@@ -299,6 +299,79 @@ public class SystemOneDeciderTests
     }
 
     [Test]
+    public async Task Decide_AChoiceOfOneOption_IsRefusedBeforeItIsSent()
+    {
+        // A Switch with a single track offers one option, which Nimble and OpenJev refuse.
+        var model = new FakeModel(_ => Ok(Answered));
+        using var decider = new SystemOneDecider(Options(), new HttpClient(model));
+        var single = Ticket with
+        {
+            Questions = [new ChoiceQuestion("Lane", "Which lane?", [new("A", null)])],
+        };
+
+        var decide = () => decider.Decide(single, CancellationToken.None);
+
+        var failure = (await decide.Should().ThrowAsync<DecisionServiceException>()).Which;
+        failure.Message.Should().Contain("offers 1 option").And.Contain("at least 2");
+        ClassOf(failure).Should().Be(FailureClass.Permanent);
+        model.Requests.Should().BeEmpty();
+    }
+
+    [TestCase("")]
+    [TestCase("   ")]
+    public async Task Decide_AQuestionWithoutInstructions_IsRefusedBeforeItIsSent(
+        string instructions
+    )
+    {
+        var model = new FakeModel(_ => Ok(Answered));
+        using var decider = new SystemOneDecider(Options(), new HttpClient(model));
+        var blank = Ticket with { Questions = [new YesNoQuestion("Q", instructions, null, null)] };
+
+        var decide = () => decider.Decide(blank, CancellationToken.None);
+
+        var failure = (await decide.Should().ThrowAsync<DecisionServiceException>()).Which;
+        failure.Message.Should().Contain("'Q' has no instructions");
+        ClassOf(failure).Should().Be(FailureClass.Permanent);
+        model.Requests.Should().BeEmpty();
+    }
+
+    [TestCase(42, "number")]
+    [TestCase(true, "true")]
+    [TestCase(DayOfWeek.Monday, "number")]
+    public async Task Decide_AStateTheFormatDoesNotTake_IsRefusedBeforeItIsSent(
+        object state,
+        string written
+    )
+    {
+        var model = new FakeModel(_ => Ok(Answered));
+        using var decider = new SystemOneDecider(Options(), new HttpClient(model));
+
+        var decide = () => decider.Decide(Ticket with { State = state }, CancellationToken.None);
+
+        var failure = (await decide.Should().ThrowAsync<DecisionServiceException>()).Which;
+        failure
+            .Message.Should()
+            .Contain($"written as JSON {written}")
+            .And.Contain("a string, an object or an array");
+        ClassOf(failure).Should().Be(FailureClass.Permanent);
+        model.Requests.Should().BeEmpty();
+    }
+
+    [TestCase("a plain string")]
+    public async Task Decide_AStringStateIsSentAsIs(string state)
+    {
+        var model = new FakeModel(_ => Ok(Answered));
+        using var decider = new SystemOneDecider(Options(), new HttpClient(model));
+
+        await decider.Decide(Ticket with { State = state }, CancellationToken.None);
+
+        model.Requests.Should().ContainSingle().Which.Body["state"]!
+            .GetValue<string>()
+            .Should()
+            .Be(state);
+    }
+
+    [Test]
     public async Task Decide_RefusesMoreQuestionsThanOneRequestMayCarry()
     {
         var model = new FakeModel(_ => Ok(Answered));
