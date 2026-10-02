@@ -385,10 +385,81 @@ public class DecisionRecordingTests
         train.Metadata!.FailureClass.Should().Be(FailureClass.Permanent, $"See {Adr}.");
     }
 
+    [Test]
+    public async Task A_manifest_retry_whose_source_run_is_gone_asks_afresh()
+    {
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+
+        await RunOn(
+            _provider,
+            new Order("o-retry-gone", 20m),
+            replayDecisionsOf: 987_654_321,
+            manifestId: 1
+        );
+
+        decider
+            .Requests.Should()
+            .ContainSingle($"a manifest's retry asks afresh rather than fail. See {Adr}.");
+    }
+
+    [Test]
+    public async Task A_manifest_retry_on_a_host_that_records_no_decisions_asks_afresh()
+    {
+        await using var provider = DecisionTrains
+            .Register(new ServiceCollection(), Decider)
+            .AddTrax(trax => trax.AddEffects(effects => effects.UseInMemory()))
+            .BuildServiceProvider();
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+
+        await RunOn(
+            provider,
+            new Order("o-retry-unrecorded", 20m),
+            replayDecisionsOf: 1,
+            manifestId: 1
+        );
+
+        decider.Requests.Should().ContainSingle();
+    }
+
+    [Test]
+    public async Task A_manifest_retry_whose_recorded_answer_is_unreadable_asks_afresh()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+        var original = await RunOn(
+            _provider,
+            new Order("o-retry-damaged", 20m),
+            replayDecisionsOf: null
+        );
+        await Rewrite(
+            original,
+            d => d.Answer = """{"type":"choice","choice":"ManualCheck","confidence":"lots"}"""
+        );
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+
+        await RunOn(
+            _provider,
+            new Order("o-retry-damaged", 20m),
+            replayDecisionsOf: original,
+            manifestId: 1
+        );
+
+        decider.Requests.Should().ContainSingle();
+    }
+
+    [Test]
+    public async Task A_manual_requeue_whose_source_run_is_gone_still_fails()
+    {
+        var run = () =>
+            RunOn(_provider, new Order("o-requeue-gone", 20m), replayDecisionsOf: 987_654_322);
+
+        await run.Should().ThrowAsync<Exception>().WithMessage("*no run 987654322 exists*");
+    }
+
     private static async Task<long> RunOn(
         IServiceProvider provider,
         Order order,
-        long? replayDecisionsOf
+        long? replayDecisionsOf,
+        long? manifestId = null
     )
     {
         using var scope = provider.CreateScope();
@@ -402,6 +473,7 @@ public class DecisionRecordingTests
                 ExternalId = Guid.NewGuid().ToString("N"),
                 Input = order,
                 ReplayDecisionsOf = replayDecisionsOf,
+                ManifestId = manifestId,
             }
         );
         await train.Run(order, metadata);

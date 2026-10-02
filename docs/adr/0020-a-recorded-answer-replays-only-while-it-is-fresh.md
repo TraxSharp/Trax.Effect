@@ -42,6 +42,12 @@ Information.
 
 ## Consequences
 
+A manifest's retry was queued by the scheduler, not by someone who asked for the original's
+decisions, so a replay it cannot honour (the source run is gone or belongs to another train, the
+host does not record decisions, a recorded answer cannot be read) is logged as a warning and asked
+afresh, where a manual requeue still fails, classified permanent, rather than ask what its caller
+asked it to repeat.
+
 Rows written before `state_hash` existed have none and are never replayed, so the first requeue
 after upgrading asks afresh. A requeue more than a day after the original asks afresh unless the
 host raises the bound. Both apply to every path that names a run to replay: a manual requeue, a
@@ -58,5 +64,6 @@ same code for every provider and are exercised on the in-memory one.
 
 ## Changelog
 
+- **2026-10-02**: A manifest's retry asks afresh when its replay cannot be honoured.
 - **2026-10-02**: A bound longer than the calendar means no bound.
 - **2026-10-02**: Recorded.

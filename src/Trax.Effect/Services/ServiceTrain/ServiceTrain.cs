@@ -638,10 +638,24 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
         }
 
         if (Metadata.ReplayDecisionsOf is not null)
-            throw DecisionRun.Unreplayable(
-                Metadata,
-                "this host does not record decisions (AddDecisionRecording), so it has none to replay"
+        {
+            const string why =
+                "this host does not record decisions (AddDecisionRecording), so it has none to replay";
+
+            // A manifest's retry was queued by the scheduler, not by someone who asked for the
+            // original's decisions, so it asks afresh rather than failing the retry.
+            if (Metadata.ManifestId is null)
+                throw DecisionRun.Unreplayable(Metadata, why);
+
+            Logger?.LogWarning(
+                "Retry {RunId} of train ({TrainName}) asks its questions afresh instead of replaying "
+                    + "the decisions of run {Source}, because {Reason}.",
+                Metadata.ExternalId,
+                TrainName,
+                Metadata.ReplayDecisionsOf,
+                why
             );
+        }
 
         return null;
     }

@@ -327,7 +327,13 @@ public sealed class DecisionJournal(
 
         var replay = metadata.ReplayDecisionsOf is { } source
             ? await LoadReplay(
-                new Replaying(metadata.Id, metadata.Name, metadata.ExternalId, source),
+                new Replaying(
+                    metadata.Id,
+                    metadata.Name,
+                    metadata.ExternalId,
+                    source,
+                    metadata.ManifestId is not null
+                ),
                 cancellationToken
             )
             : NothingToReplay;
@@ -362,7 +368,21 @@ public sealed class DecisionJournal(
         nearestFirst.FirstOrDefault(row => !row.Replayed)?.DecidedAt;
 
     /// <summary>The run whose replay is loaded, and the run it names.</summary>
-    private sealed record Replaying(long Id, string Name, string ExternalId, long Source);
+    /// <param name="Id">The run's row.</param>
+    /// <param name="Name">The run's train name.</param>
+    /// <param name="ExternalId">The run's external id.</param>
+    /// <param name="Source">The run it names to replay.</param>
+    /// <param name="Retry">
+    /// True for a run of a manifest, whose replay is a retry the scheduler queued: one that cannot be
+    /// honoured asks afresh, with a warning, instead of failing the retry.
+    /// </param>
+    private sealed record Replaying(
+        long Id,
+        string Name,
+        string ExternalId,
+        long Source,
+        bool Retry
+    );
 
     /// <summary>
     /// How many runs back a replay follows <c>replay_decisions_of</c>. A run requeued this many
@@ -488,7 +508,20 @@ public sealed class DecisionJournal(
         }
 
         if (broken is not null)
-            throw DecisionRun.Unreplayable(metadata.Name, metadata.ExternalId, source, broken);
+        {
+            if (!metadata.Retry)
+                throw DecisionRun.Unreplayable(metadata.Name, metadata.ExternalId, source, broken);
+
+            _logger.LogWarning(
+                "Retry {RunId} of train {Train} asks its questions afresh instead of replaying the "
+                    + "decisions of run {Source}, because {Reason}.",
+                metadata.ExternalId,
+                metadata.Name,
+                source,
+                broken
+            );
+            return NothingToReplay;
+        }
 
         var answers = new Dictionary<(string, int), RecordedAnswer>();
         var nearestFirst = chain.Select((id, depth) => (id, depth)).ToDictionary();
@@ -542,11 +575,17 @@ public sealed class DecisionJournal(
             }
             catch (JsonException e)
             {
-                throw DecisionRun.Unreplayable(
-                    metadata.Name,
+                var why = $"the answer run {runId} recorded to '{key}' cannot be read: {e.Message}";
+
+                if (!metadata.Retry)
+                    throw DecisionRun.Unreplayable(metadata.Name, metadata.ExternalId, source, why);
+
+                _logger.LogWarning(
+                    "Retry {RunId} of train {Train} asks '{Question}' afresh, because {Reason}.",
                     metadata.ExternalId,
-                    source,
-                    $"the answer run {runId} recorded to '{key}' cannot be read: {e.Message}"
+                    metadata.Name,
+                    key,
+                    why
                 );
             }
         }
@@ -627,7 +666,7 @@ public sealed class DecisionJournal(
             return null;
 
         var names = known.Keys.ToList();
-        List<(long Id, string Name, long? ReplayDecisionsOf)> runs;
+        List<(long Id, string Name, long? ReplayDecisionsOf, bool Retry)> runs;
 
         try
         {
@@ -647,10 +686,11 @@ public sealed class DecisionJournal(
                         m.Id,
                         m.Name,
                         m.ReplayDecisionsOf,
+                        m.ManifestId,
                     })
                     .Take(2)
                     .ToListAsync(cancellationToken)
-            ).Select(m => (m.Id, m.Name, m.ReplayDecisionsOf)).ToList();
+            ).Select(m => (m.Id, m.Name, m.ReplayDecisionsOf, m.ManifestId is not null)).ToList();
         }
         catch (Exception e)
             when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
@@ -673,7 +713,7 @@ public sealed class DecisionJournal(
             return null;
         }
 
-        var (id, name, source) = runs[0];
+        var (id, name, source, retry) = runs[0];
 
         _logger.LogWarning(
             "Train {Train} reported a decision for run {RunId} on an async flow that does not carry "
@@ -687,7 +727,10 @@ public sealed class DecisionJournal(
 
         var answers =
             replay && source is { } replayed
-                ? await LoadReplay(new Replaying(id, name, runId, replayed), cancellationToken)
+                ? await LoadReplay(
+                    new Replaying(id, name, runId, replayed, retry),
+                    cancellationToken
+                )
                 : NothingToReplay;
 
         return new DecisionRun(runId, train, id, answers);
