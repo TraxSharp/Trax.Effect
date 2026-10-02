@@ -182,7 +182,8 @@ public sealed class DecisionJournal(
 
     /// <summary>
     /// Binds the run to its row and loads the answers of the run it replays. A run that names one
-    /// that does not exist, or whose answers cannot be read, fails here, classified permanent; one
+    /// that does not exist, is a run of another train, or whose answers cannot be read, fails
+    /// here, classified permanent; one
     /// whose answers cannot be loaded because the database failed fails classified transient.
     /// </summary>
     async Task<DecisionRun> IDecisionRunRecorder.Begin(
@@ -206,18 +207,20 @@ public sealed class DecisionJournal(
         CancellationToken cancellationToken
     )
     {
-        bool exists;
+        string? train;
         List<(string QuestionKey, int Occurrence, string Fingerprint, string Answer)> recorded;
 
         try
         {
             using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-            exists = await context
+            train = await context
                 .Metadatas.AsNoTracking()
-                .AnyAsync(m => m.Id == source, cancellationToken);
+                .Where(m => m.Id == source)
+                .Select(m => m.Name)
+                .FirstOrDefaultAsync(cancellationToken);
 
-            recorded = exists ? (
+            recorded = train is not null ? (
                     await context
                         .RecordedDecisions.AsNoTracking()
                         .Where(d => d.MetadataId == source)
@@ -245,8 +248,16 @@ public sealed class DecisionJournal(
             throw;
         }
 
-        if (!exists)
+        if (train is null)
             throw DecisionRun.Unreplayable(metadata, $"no run {source} exists");
+
+        // Another train's answers were given to other questions in another chain; a matching key
+        // or fingerprint would only make them look like this train's.
+        if (train != metadata.Name)
+            throw DecisionRun.Unreplayable(
+                metadata,
+                $"run {source} is a run of train '{train}', not of this train"
+            );
 
         var answers = new Dictionary<(string, int), RecordedAnswer>();
 

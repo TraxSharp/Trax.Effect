@@ -227,10 +227,34 @@ public class DecisionRecordingTests
     }
 
     [Test]
+    public async Task A_replay_of_a_run_of_another_train_fails_the_run_as_permanent()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+        var (other, _) = await Run<IRouteWithShadow>(new Order("o-other", 20m));
+
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+        var (train, run) = Start<IRouteOrder>(
+            new Order("o-other", 20m),
+            replayDecisionsOf: other.Metadata!.Id
+        );
+
+        (await run.Should().ThrowAsync<TrainException>())
+            .Which.Message.Should()
+            .Contain(
+                $"run {other.Metadata.Id} is a run of train '{typeof(IRouteWithShadow).FullName}'"
+            );
+        decider.Requests.Should().BeEmpty("the run fails before it asks anything");
+        train.Metadata!.FailureClass.Should().Be(FailureClass.Permanent);
+    }
+
+    [Test]
     public async Task A_replay_of_a_run_that_reached_fewer_questions_asks_the_rest_afresh()
     {
-        Decider.Use(new SequenceDecider(Fulfilment.ManualCheck));
-        var (original, _) = await Run<IRouteOrder>(new Order("o-fewer", 20m));
+        Decider.Use(new SequenceDecider(Fulfilment.ManualCheck, Fulfilment.ManualCheck));
+        var (original, _) = await Run<IRouteTwice>(new Order("o-fewer", 20m));
+
+        // As if it had died before its second asking.
+        await Forget(original.Metadata!.Id, occurrence: 1);
 
         var decider = Decider.Use(new SequenceDecider(Fulfilment.ManualCheck, Fulfilment.Standard));
 
@@ -323,7 +347,8 @@ public class DecisionRecordingTests
     {
         // A retried dispatch can leave two rows under one external id, both running at once.
         Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
-        var (source, _) = await Run<IRouteOrder>(new Order("o-shared", 20m));
+        MeetBeforeDeciding.Expect(1);
+        var (source, _) = await Run<IMeetThenRoute>(new Order("o-shared", 20m));
 
         var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
         var shared = Id();
@@ -358,7 +383,8 @@ public class DecisionRecordingTests
     public async Task A_replay_ends_with_its_run_and_never_reaches_a_later_run_under_the_same_id()
     {
         Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
-        var (source, _) = await Run<IRouteOrder>(new Order("o-later", 20m));
+        var (source, first) = Start<IRouteThenFail>(new Order("o-later", 20m));
+        await first.Should().ThrowAsync<InvalidOperationException>();
         var shared = Id();
 
         var (_, failing) = Start<IRouteThenFail>(
@@ -369,9 +395,9 @@ public class DecisionRecordingTests
         await failing.Should().ThrowAsync<InvalidOperationException>();
 
         var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
-        var (later, run) = Start<IRouteOrder>(new Order("o-later", 20m), externalId: shared);
+        var (later, run) = Start<IRouteThenFail>(new Order("o-later", 20m), externalId: shared);
 
-        (await run()).Should().Be("shipped");
+        await run.Should().ThrowAsync<InvalidOperationException>();
         decider.Requests.Should().ContainSingle();
         (await Recorded(later.Metadata!.Id))
             .Should()
@@ -437,6 +463,20 @@ public class DecisionRecordingTests
     }
 
     private static string Id() => Guid.NewGuid().ToString("N");
+
+    private async Task Forget(long metadataId, int occurrence)
+    {
+        using var scope = _provider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<IDataContext>();
+
+        context.RecordedDecisions.RemoveRange(
+            context.RecordedDecisions.Where(d =>
+                d.MetadataId == metadataId && d.Occurrence == occurrence
+            )
+        );
+
+        await context.SaveChanges(CancellationToken.None);
+    }
 
     private async Task Rewrite(
         long metadataId,
