@@ -179,8 +179,9 @@ public sealed class SystemOneDecider : IDecider, IDisposable
                         FailureClass.Permanent
                     );
 
-                var detail = await Detail(response, timeout.Token).ConfigureAwait(false);
-                failure = $"the model answered {status} {response.ReasonPhrase}{detail}";
+                failure =
+                    $"the model answered {status} {response.ReasonPhrase} ({Classify(status)})"
+                    + RequestId(response);
 
                 if (!IsRetryable(response.StatusCode))
                     throw Refused(request, failure, FailureClass.Permanent);
@@ -504,49 +505,45 @@ public sealed class SystemOneDecider : IDecider, IDisposable
         ?? (header?.Date is { } date ? Max(date - DateTimeOffset.UtcNow, TimeSpan.Zero) : null);
 
     /// <summary>
-    /// What the model said about a failed request: its <c>detail</c> and <c>request_id</c> when
-    /// the body carries them, as Nimble's errors do, otherwise the start of the body. The request
-    /// id is what the model's provider asks for when a failure is reported to them.
+    /// What a failed status means, in a few words. The response body is never quoted: a server's
+    /// validation errors can echo the request back, and the request carries the train's state,
+    /// while this message is stored on the run and shown wherever its failure is.
     /// </summary>
-    private static async Task<string> Detail(HttpResponseMessage response, CancellationToken ct)
+    private static string Classify(int status) =>
+        status switch
+        {
+            400 or 422 => "the request was refused as invalid",
+            401 or 403 => "the API key was refused",
+            402 => "the account cannot pay for the request",
+            404 or 405 => "the endpoint does not answer System One requests",
+            408 or 504 => "the model timed out",
+            413 => "the request is too large",
+            429 => "the model is throttling requests",
+            501 or 505 => "the server does not implement the request",
+            529 => "the model is overloaded",
+            >= 500 => "the model's server failed",
+            _ => "the request was refused",
+        };
+
+    /// <summary>
+    /// The id the provider gave the request, from its <c>x-typesafe-request-id</c> header, which is
+    /// what it asks for when a failure is reported to it; empty when there is none.
+    /// </summary>
+    private static string RequestId(HttpResponseMessage response)
     {
-        string text;
-
-        try
-        {
-            text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        }
-        catch (Exception)
-        {
-            return "";
-        }
-
-        if (string.IsNullOrWhiteSpace(text))
+        if (
+            !response.Headers.TryGetValues("x-typesafe-request-id", out var values)
+            || values.FirstOrDefault() is not { } id
+        )
             return "";
 
-        try
-        {
-            if (JsonNode.Parse(text) is JsonObject body)
-            {
-                var detail = body["detail"] is JsonValue value
-                    ? value.ToString()
-                    : body["detail"]?.ToJsonString();
-                var id = body["request_id"]?.ToString();
-
-                if (detail is not null || id is not null)
-                    return (detail is null ? "" : $": {Clip(detail)}")
-                        + (id is null ? "" : $" (request {id})");
-            }
-        }
-        catch (Exception e) when (e is JsonException or ArgumentException)
-        {
-            // Not JSON, or not JSON this can read; the text itself is the detail.
-        }
-
-        return $": {Clip(text)}";
+        // An id, not a message: anything longer or stranger than one is not repeated.
+        return
+            id.Length is > 0 and <= 128
+            && id.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_')
+            ? $" (request {id})"
+            : "";
     }
-
-    private static string Clip(string text) => text.Length > 300 ? text[..300] + "…" : text;
 
     private static string Seconds(TimeSpan span) =>
         string.Create(CultureInfo.InvariantCulture, $"{span.TotalSeconds:0.#}s");

@@ -319,12 +319,16 @@ public class SystemOneDeciderTests
     [Test]
     public async Task Decide_OutOfCredit_FailsPermanentlyWithTheProvidersRequestId()
     {
+        // The provider's error shape, with its request id in the response header.
         var model = new FakeModel(_ =>
-            Status(
+        {
+            var response = Status(
                 HttpStatusCode.PaymentRequired,
-                """{"detail":"Insufficient credit","request_id":"req_9f2"}"""
-            )
-        );
+                """{"error":{"message":"Insufficient credit"}}"""
+            );
+            response.Headers.Add("x-typesafe-request-id", "req_9f2");
+            return response;
+        });
         using var decider = new SystemOneDecider(Options(), new HttpClient(model));
 
         var decide = () => decider.Decide(Ticket, CancellationToken.None);
@@ -333,12 +337,55 @@ public class SystemOneDeciderTests
         failure
             .Message.Should()
             .Contain("402")
-            .And.Contain("Insufficient credit")
+            .And.Contain("cannot pay")
             .And.Contain("(request req_9f2)");
-        ((TrainExceptionData)failure.Data["TrainExceptionData"]!)
-            .FailureClass.Should()
-            .Be(FailureClass.Permanent);
+        ClassOf(failure).Should().Be(FailureClass.Permanent);
         model.Requests.Should().ContainSingle();
+    }
+
+    [Test]
+    public async Task Decide_ARefusalThatEchoesTheRequest_DoesNotRepeatItInTheFailure()
+    {
+        // FastAPI's validation error carries the input it refused, here the train's state, and
+        // the failure message is stored on the run and shown on the dashboard.
+        var model = new FakeModel(_ =>
+            Status(
+                HttpStatusCode.UnprocessableEntity,
+                """
+                {"detail":[{"type":"missing","loc":["body","questions"],"msg":"Field required",
+                            "input":{"state":{"customerId":"cus_secret_7"}}}]}
+                """
+            )
+        );
+        using var decider = new SystemOneDecider(Options(), new HttpClient(model));
+
+        var decide = () => decider.Decide(Ticket, CancellationToken.None);
+
+        var failure = (await decide.Should().ThrowAsync<DecisionServiceException>()).Which;
+        failure.Message.Should().Contain("422").And.Contain("refused as invalid");
+        failure.Message.Should().NotContain("cus_secret_7").And.NotContain("detail");
+        ((TrainExceptionData)failure.Data["TrainExceptionData"]!)
+            .Message.Should()
+            .NotContain("cus_secret_7");
+        ClassOf(failure).Should().Be(FailureClass.Permanent);
+    }
+
+    [Test]
+    public async Task Decide_ARequestIdThatIsNotAnId_IsLeftOut()
+    {
+        var model = new FakeModel(_ =>
+        {
+            var response = Status(HttpStatusCode.Unauthorized);
+            response.Headers.TryAddWithoutValidation("x-typesafe-request-id", "<b>look here</b>");
+            return response;
+        });
+        using var decider = new SystemOneDecider(Options(), new HttpClient(model));
+
+        var decide = () => decider.Decide(Ticket, CancellationToken.None);
+
+        (await decide.Should().ThrowAsync<DecisionServiceException>())
+            .Which.Message.Should()
+            .NotContain("look here");
     }
 
     [Test]
