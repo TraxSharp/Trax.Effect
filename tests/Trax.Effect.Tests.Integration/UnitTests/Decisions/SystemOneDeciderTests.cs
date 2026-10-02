@@ -413,6 +413,24 @@ public class SystemOneDeciderTests
     }
 
     [Test]
+    public async Task Disposing_WhileADecisionIsInFlight_LeavesItsOutcomeAlone()
+    {
+        var gate = new TaskCompletionSource();
+        var model = new FakeModel(_ => Ok(Answered), waitFor: () => gate.Task);
+        var decider = new SystemOneDecider(
+            Options(o => o.MaxConcurrentRequests = 1),
+            new HttpClient(model)
+        );
+
+        var decision = decider.Decide(Ticket, CancellationToken.None);
+        await model.InFlightReached(1);
+        decider.Dispose();
+        gate.SetResult();
+
+        (await decision).Answers.Should().HaveCount(3);
+    }
+
+    [Test]
     public async Task Decide_RetriesAModelThatSaysItIsBusy()
     {
         var model = new FakeModel(attempt =>

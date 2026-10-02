@@ -250,8 +250,9 @@ public sealed class SystemOneDecider : IDecider, IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
-        _slots?.Dispose();
-
+        // The slots are left alone: a decision still in flight releases its slot when it ends,
+        // and releasing a disposed semaphore would throw over that decision's own outcome. A
+        // SemaphoreSlim whose wait handle was never asked for holds nothing to free.
         if (_ownsHttp)
             _http.Dispose();
     }
