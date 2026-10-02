@@ -150,8 +150,8 @@ public interface IDataContext : IEffectProvider, IAsyncDisposable
 
     /// <summary>
     /// The <c>trax.junction_run</c> table: the steps of each run, in order, written by
-    /// <c>AddJunctionEvents</c>. Read a run's timeline with <c>IJunctionRunReader</c>, or query by
-    /// <c>MetadataId</c> ordered by <c>Position</c>.
+    /// <c>AddJunctionEvents</c>. Read a run's timeline with
+    /// <c>JunctionRuns.ForRun(metadataId)</c> (<c>JunctionRunQueries</c>), ordered by <c>Position</c>.
     /// </summary>
     /// <remarks>
     /// <see cref="DataContext{TDbContext}"/> declares this set. The default keeps an implementation

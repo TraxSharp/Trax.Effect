@@ -20,7 +20,6 @@
     <InternalsVisibleTo Include="Trax.Effect.Tests.Integration" />
     <InternalsVisibleTo Include="Trax.Effect.Tests.Broadcaster" />
     <InternalsVisibleTo Include="Trax.Effect.Tests.Data.InMemory.Integration" />
-    <InternalsVisibleTo Include="Trax.Effect.Tests.Data.InMemory.Integration" />
     <InternalsVisibleTo Include="Trax.Effect.StateMachine.Persistence.Integration" />
   </ItemGroup>
 
