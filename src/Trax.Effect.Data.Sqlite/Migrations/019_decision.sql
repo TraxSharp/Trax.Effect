@@ -18,5 +18,6 @@ CREATE TABLE IF NOT EXISTS decision (
     UNIQUE (metadata_id, question_key, occurrence)
 );
 
+ALTER TABLE metadata ADD COLUMN decisions_recorded INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE work_queue ADD COLUMN replay_decisions_of INTEGER;
 ALTER TABLE metadata ADD COLUMN replay_decisions_of INTEGER;

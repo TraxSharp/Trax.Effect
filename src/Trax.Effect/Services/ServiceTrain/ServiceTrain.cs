@@ -362,6 +362,11 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
         // Setting it here also makes the typed input available to OnStarted, as it is to
         // OnCompleted and OnFailed.
         Metadata.SetInputObject(input);
+
+        // On the first write too, so a replay of this run can tell that its decisions were
+        // recorded even when it dies before it ends. See Trax.Docs/adr/0041.
+        Metadata.DecisionsRecorded =
+            ServiceProvider.GetService(typeof(IDecisionRunRecorder)) is not null;
         await EffectRunner.Update(Metadata);
 
         // Not the caller's token, for the same reason SaveOutcome does not take it. An
@@ -592,7 +597,7 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
             ServiceProvider?.GetService(typeof(IDecisionRunRecorder))
             is IDecisionRunRecorder recorder
         )
-            return await recorder.Begin(Metadata, CancellationToken);
+            return await recorder.Begin(Metadata, GetType(), CancellationToken);
 
         if (Metadata.ReplayDecisionsOf is not null)
             throw DecisionRun.Unreplayable(

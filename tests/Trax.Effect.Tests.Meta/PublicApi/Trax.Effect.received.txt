@@ -691,6 +691,10 @@ namespace Trax.Effect.Models.Metadata
         public System.Collections.Generic.ICollection<Trax.Effect.Models.Metadata.Metadata> Children { get; }
         [System.ComponentModel.DataAnnotations.Schema.Column("currently_running_junction")]
         public string? CurrentlyRunningJunction { get; set; }
+        [System.ComponentModel.DataAnnotations.Schema.Column("decisions_recorded")]
+        [System.Text.Json.Serialization.JsonInclude]
+        [System.Text.Json.Serialization.JsonPropertyName("decisions_recorded")]
+        public bool DecisionsRecorded { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("end_time")]
         public System.DateTime? EndTime { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("executor")]

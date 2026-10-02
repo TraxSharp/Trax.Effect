@@ -346,6 +346,76 @@ public class DecisionRecordingTests
     }
 
     [Test]
+    public async Task A_run_on_a_host_that_records_decisions_is_marked_as_recorded()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+
+        var (train, _) = await Run<IRouteOrder>(new Order("o-marked", 20m));
+
+        using var scope = _provider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<IDataContext>();
+        (await context.Metadatas.AsNoTracking().SingleAsync(m => m.Id == train.Metadata!.Id))
+            .DecisionsRecorded.Should()
+            .BeTrue();
+    }
+
+    [Test]
+    public async Task A_replay_of_a_run_that_did_not_record_its_decisions_fails_the_run_as_permanent()
+    {
+        // As a run on a host without AddDecisionRecording leaves it: it may have decided, but
+        // nothing says what.
+        var unrecorded = await Seed<IRouteOrder>(replayDecisionsOf: null);
+
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+        var (train, run) = Start<IRouteOrder>(
+            new Order("o-unrecorded", 20m),
+            replayDecisionsOf: unrecorded
+        );
+
+        (await run.Should().ThrowAsync<TrainException>())
+            .Which.Message.Should()
+            .Contain($"run {unrecorded} ran without recording its decisions");
+        decider.Requests.Should().BeEmpty("the run fails before it asks anything");
+        train.Metadata!.FailureClass.Should().Be(FailureClass.Permanent);
+    }
+
+    [Test]
+    public async Task A_replay_of_a_recorded_run_that_reached_no_questions_asks_afresh()
+    {
+        var reachedNothing = await Seed<IRouteOrder>(
+            replayDecisionsOf: null,
+            decisionsRecorded: true
+        );
+
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+
+        var (_, output) = await Run<IRouteOrder>(
+            new Order("o-nothing", 20m),
+            replayDecisionsOf: reachedNothing
+        );
+
+        output.Should().Be("shipped");
+        decider.Requests.Should().ContainSingle();
+    }
+
+    [Test]
+    public async Task A_decision_reported_after_the_train_changed_its_external_id_fails_as_permanent()
+    {
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+        Ship.Ran = 0;
+
+        var (train, run) = Start<IRenameThenRoute>(new Order("o-renamed", 20m));
+
+        (await run.Should().ThrowAsync<TrainException>())
+            .Which.Message.Should()
+            .Contain("external id was changed");
+        decider.Requests.Should().BeEmpty("the replay lookup that comes first already fails");
+        Ship.Ran.Should().Be(0);
+        train.Metadata!.FailureClass.Should().Be(FailureClass.Permanent);
+        (await Recorded(train.Metadata.Id)).Should().BeEmpty();
+    }
+
+    [Test]
     public async Task A_replay_of_a_run_that_reached_fewer_questions_asks_the_rest_afresh()
     {
         Decider.Use(new SequenceDecider(Fulfilment.ManualCheck, Fulfilment.ManualCheck));
@@ -563,7 +633,7 @@ public class DecisionRecordingTests
     private static string Id() => Guid.NewGuid().ToString("N");
 
     /// <summary>A run of <typeparamref name="TTrain"/> that never reached a question.</summary>
-    private async Task<long> Seed<TTrain>(long? replayDecisionsOf)
+    private async Task<long> Seed<TTrain>(long? replayDecisionsOf, bool decisionsRecorded = false)
     {
         using var scope = _provider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<IDataContext>();
@@ -578,6 +648,7 @@ public class DecisionRecordingTests
             }
         );
 
+        metadata.DecisionsRecorded = decisionsRecorded;
         context.Metadatas.Add(metadata);
         await context.SaveChanges(CancellationToken.None);
         return metadata.Id;
@@ -693,6 +764,7 @@ public class DecisionRecordingFailureTests
         (await run.Should().ThrowAsync<TrainException>())
             .Which.Message.Should()
             .Contain("does not record decisions (AddDecisionRecording)");
+        train.Metadata!.DecisionsRecorded.Should().BeFalse();
         decider.Requests.Should().BeEmpty();
         train.Metadata!.TrainState.Should().Be(TrainState.Failed);
         train.Metadata.FailureClass.Should().Be(FailureClass.Permanent);
@@ -721,6 +793,7 @@ internal static class DecisionTrains
             .AddScopedTraxRoute<IRouteThenPeek, RouteThenPeek>()
             .AddScopedTraxRoute<IRouteTwice, RouteTwice>()
             .AddScopedTraxRoute<IRouteWithShadow, RouteWithShadow>()
+            .AddScopedTraxRoute<IRenameThenRoute, RenameThenRoute>()
             .AddSingleton<OddShadow>()
             .AddScopedTraxRoute<IRouteWithOddShadow, RouteWithOddShadow>()
             .AddScopedTraxRoute<IMeetThenRoute, MeetThenRoute>();
@@ -832,6 +905,24 @@ public class RouteOrder : ServiceTrain<Order, string>, IRouteOrder
                     .Otherwise(t => t.Chain<HoldForReview>())
             )
             .Resolve();
+}
+
+public interface IRenameThenRoute : IServiceTrain<Order, string>;
+
+/// <summary>Changes its own external id once it is running, then decides.</summary>
+public class RenameThenRoute : ServiceTrain<Order, string>, IRenameThenRoute
+{
+    protected override Task<Either<Exception, string>> Junctions()
+    {
+        ExternalId = Guid.NewGuid().ToString("N");
+
+        return Switch<Order, Fulfilment>(tracks =>
+                tracks
+                    .When(Fulfilment.Standard, t => t.Chain<Ship>())
+                    .When(Fulfilment.ManualCheck, t => t.Chain<HoldForReview>())
+            )
+            .Resolve();
+    }
 }
 
 public interface IRouteWithShadow : IServiceTrain<Order, string>;

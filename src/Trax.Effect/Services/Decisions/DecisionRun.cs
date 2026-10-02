@@ -16,7 +16,10 @@ internal interface IDecisionRunRecorder
     /// row is saved and the start hooks have run, and before the first junction. Whatever it
     /// throws fails the run.
     /// </summary>
-    Task<DecisionRun> Begin(Metadata metadata, CancellationToken cancellationToken);
+    /// <param name="metadata">The run's row.</param>
+    /// <param name="train">The train's own type, which Trax.Core names its decisions after.</param>
+    /// <param name="cancellationToken">The run's token.</param>
+    Task<DecisionRun> Begin(Metadata metadata, Type train, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -30,6 +33,7 @@ internal interface IDecisionRunRecorder
 /// </remarks>
 internal sealed class DecisionRun(
     string runId,
+    Type train,
     long? metadataId,
     IReadOnlyDictionary<(string Key, int Occurrence), RecordedAnswer> replay
 )
@@ -45,6 +49,9 @@ internal sealed class DecisionRun(
 
     /// <summary>The run's external id, which Trax.Core reports its decisions under.</summary>
     public string RunId { get; } = runId;
+
+    /// <summary>The train as Trax.Core names it in <c>DecisionMade.Train</c>.</summary>
+    public string Train { get; } = ReadableName(train);
 
     /// <summary>The run's row, or null when it was never persisted and its decisions are only logged.</summary>
     public long? MetadataId { get; } = metadataId;
@@ -81,6 +88,21 @@ internal sealed class DecisionRun(
     }
 
     /// <summary>
+    /// The failure for a decision this run reports under an external id other than its own, which
+    /// happens when the train's <c>ExternalId</c> is changed while it runs. Its decisions cannot be
+    /// written against the run's row, and a decision that is not recorded is not acted on.
+    /// </summary>
+    public TrainException Unbound(string reportedRunId)
+    {
+        var message =
+            $"Train '{Train}' reported a decision under the external id {reportedRunId}, but its "
+            + $"run is {RunId}. The external id was changed while the run was going, so the "
+            + "decision cannot be recorded against the run, and it is not acted on.";
+
+        return Classified(new TrainException(message), Train, RunId, FailureClass.Permanent);
+    }
+
+    /// <summary>
     /// Attaches a failure class to an exception that carries none yet, so the run records it
     /// whether it fails before any junction or in a decision step.
     /// </summary>
@@ -107,5 +129,37 @@ internal sealed class DecisionRun(
             };
 
         return exception;
+    }
+
+    /// <summary>
+    /// The name Trax.Core gives a train in <c>DecisionMade.Train</c>: the type's name with its
+    /// generic arguments written as C# writes them (<c>Route&lt;Order&gt;</c>), and a type nested in
+    /// a generic type after its outer type. It must match Trax.Core's, which is internal there.
+    /// </summary>
+    private static string ReadableName(Type type) =>
+        ReadableName(type, type.IsGenericType ? type.GetGenericArguments() : []);
+
+    private static string ReadableName(Type type, Type[] arguments)
+    {
+        var prefix = "";
+        var inherited = 0;
+
+        if (type.IsNested && type.DeclaringType is { IsGenericType: true } outer)
+        {
+            inherited = Math.Min(outer.GetGenericArguments().Length, arguments.Length);
+            prefix = ReadableName(outer, arguments[..inherited]) + ".";
+        }
+
+        var name = type.Name;
+        var tick = name.IndexOf('`');
+
+        if (tick >= 0)
+            name = name[..tick];
+
+        var own = arguments[inherited..];
+
+        return own.Length == 0
+            ? prefix + name
+            : $"{prefix}{name}<{string.Join(", ", own.Select(ReadableName))}>";
     }
 }

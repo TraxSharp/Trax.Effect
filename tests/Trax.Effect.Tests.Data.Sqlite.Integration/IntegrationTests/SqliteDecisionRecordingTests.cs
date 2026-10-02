@@ -79,6 +79,7 @@ public class SqliteDecisionRecordingTests
         row.Answer.Should().Contain("\"choice\":\"ManualCheck\"");
         row.Replayed.Should().BeFalse();
         row.Track.Should().Be("ManualCheck");
+        (await RunRow(train.Metadata.Id)).DecisionsRecorded.Should().BeTrue();
 
         await Delete(train.Metadata.Id);
     }
@@ -172,6 +173,14 @@ public class SqliteDecisionRecordingTests
             .RecordedDecisions.AsNoTracking()
             .Where(d => d.MetadataId == metadataId)
             .ToListAsync();
+    }
+
+    private async Task<Metadata> RunRow(long metadataId)
+    {
+        var factory = _provider.GetRequiredService<IDataContextProviderFactory>();
+        using var context = await factory.CreateDbContextAsync(CancellationToken.None);
+
+        return await context.Metadatas.AsNoTracking().SingleAsync(m => m.Id == metadataId);
     }
 
     private async Task Delete(params long[] metadataIds)

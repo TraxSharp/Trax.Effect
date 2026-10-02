@@ -29,7 +29,10 @@ namespace Trax.Effect.Data.Decisions;
 /// on the run's own async flow, set by <c>ServiceTrain.Run</c> when it starts and dropped when its
 /// junctions finish, so two runs that share an external id each write under their own row and
 /// replay their own answers, and nothing is left behind however a run ends. A decision made
-/// outside a service train's run, or in a run that was never persisted, is logged only.</para>
+/// outside a service train's run, or in a run that was never persisted, is logged only. One the
+/// run's own train reports under an external id other than the run's, because the train's
+/// <c>ExternalId</c> was changed while it ran, fails its step, classified permanent, rather than
+/// going unrecorded.</para>
 /// </remarks>
 public sealed class DecisionJournal(
     IDataContextProviderFactory contextFactory,
@@ -66,7 +69,7 @@ public sealed class DecisionJournal(
             decision.ReplayRefused is null ? "" : $"; not replayed: {decision.ReplayRefused}"
         );
 
-        if (Bound(decision.RunId) is not { MetadataId: { } metadataId } run)
+        if (Bound(decision.Train, decision.RunId) is not { MetadataId: { } metadataId } run)
             return;
 
         RecordedDecision record;
@@ -140,7 +143,7 @@ public sealed class DecisionJournal(
 
         // The routing is written onto the row of the latest decision it routes on.
         if (
-            Bound(routing.RunId) is not { MetadataId: not null } run
+            Bound(routing.Train, routing.RunId) is not { MetadataId: not null } run
             || !run.Latest.TryGetValue(QuestionKey.For(routing.On), out var recordId)
         )
             return;
@@ -178,17 +181,20 @@ public sealed class DecisionJournal(
         string key,
         int occurrence,
         CancellationToken cancellationToken
-    ) => Task.FromResult(Bound(runId)?.Replay.GetValueOrDefault((key, occurrence)));
+    ) => Task.FromResult(Bound(train, runId)?.Replay.GetValueOrDefault((key, occurrence)));
 
     /// <summary>
     /// Binds the run to its row and loads the answers of the runs it replays. A run that names one
     /// that cannot be replayed (it, or a run it replays in turn, does not exist, is a run of another
-    /// train, or has an answer that cannot be read, or the runs lead back on themselves or further
-    /// than <see cref="MaxReplayChain"/>) fails here, classified permanent; one whose answers
-    /// cannot be loaded because the database failed fails classified transient.
+    /// train, ran without recording its decisions, or has an answer that cannot be read, or the
+    /// runs lead back on themselves or further than <see cref="MaxReplayChain"/>) fails here,
+    /// classified permanent; one whose answers cannot be loaded because the database failed fails
+    /// classified transient. A run that recorded its decisions but reached no questions is
+    /// replayed like any other: there is nothing to repeat, and its questions are asked afresh.
     /// </summary>
     async Task<DecisionRun> IDecisionRunRecorder.Begin(
         Metadata metadata,
+        Type train,
         CancellationToken cancellationToken
     )
     {
@@ -199,7 +205,7 @@ public sealed class DecisionJournal(
             ? await LoadReplay(metadata, source, cancellationToken)
             : NothingToReplay;
 
-        return new DecisionRun(metadata.ExternalId, metadataId, replay);
+        return new DecisionRun(metadata.ExternalId, train, metadataId, replay);
     }
 
     /// <summary>
@@ -254,7 +260,12 @@ public sealed class DecisionJournal(
                 var link = await context
                     .Metadatas.AsNoTracking()
                     .Where(m => m.Id == id)
-                    .Select(m => new { m.Name, m.ReplayDecisionsOf })
+                    .Select(m => new
+                    {
+                        m.Name,
+                        m.ReplayDecisionsOf,
+                        m.DecisionsRecorded,
+                    })
                     .FirstOrDefaultAsync(cancellationToken);
 
                 if (link is null)
@@ -271,6 +282,19 @@ public sealed class DecisionJournal(
                 if (link.Name != metadata.Name)
                 {
                     broken = $"run {id} is a run of train '{link.Name}', not of this train";
+                    break;
+                }
+
+                // A run that did not record its decisions may have acted on answers nobody can
+                // know now. One that replays an earlier run made none of its own, because a run
+                // that names a run to replay fails before its first junction where decisions are
+                // not recorded, so the replay goes on to the run it named. One that does not was
+                // the first, and what it decided is lost.
+                if (!link.DecisionsRecorded && link.ReplayDecisionsOf is null)
+                {
+                    broken =
+                        $"run {id} ran without recording its decisions, so what it decided "
+                        + "cannot be known";
                     break;
                 }
 
@@ -368,7 +392,20 @@ public sealed class DecisionJournal(
         }
     }
 
-    /// <summary>The run on this flow, when it is the run Trax.Core reported.</summary>
-    private static DecisionRun? Bound(string runId) =>
-        DecisionRun.Current is { } run && run.RunId == runId ? run : null;
+    /// <summary>
+    /// The run on this flow, when it is the run Trax.Core reported; null outside a service train's
+    /// run, or for a decision of another train run on the same flow (a plain train a junction
+    /// runs), whose decisions are logged only.
+    /// </summary>
+    /// <exception cref="Trax.Core.Exceptions.TrainException">
+    /// The run's own train reported the decision under another external id. Writing nothing and
+    /// carrying on would leave a decision the run acted on out of the record its requeue replays.
+    /// </exception>
+    private static DecisionRun? Bound(string train, string runId) =>
+        DecisionRun.Current switch
+        {
+            { } run when run.RunId == runId => run,
+            { } run when run.Train == train => throw run.Unbound(runId),
+            _ => null,
+        };
 }

@@ -25,6 +25,11 @@ CREATE TABLE IF NOT EXISTS trax.decision (
     CONSTRAINT uq_decision_run_question UNIQUE (metadata_id, question_key, occurrence)
 );
 
+-- Whether the run started on a host recording its decisions, set on its first write. A replay must
+-- tell a run that reached no questions (recorded, with nothing to replay) from one whose decisions
+-- were never recorded, whose answers it cannot know.
+ALTER TABLE trax.metadata ADD COLUMN IF NOT EXISTS decisions_recorded boolean NOT NULL DEFAULT false;
+
 -- Which run's decisions a run replays. Set by a requeue on the queued entry and carried to the
 -- run's metadata at dispatch. Not a foreign key: the original may be deleted before the requeue
 -- runs, and the requeued run then fails rather than asking afresh. A question the original never
