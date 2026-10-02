@@ -46,13 +46,20 @@ public sealed class SystemOneDecider : IDecider, IDisposable
 
     private int _disposed;
 
-    /// <summary>Creates a decider with an HTTP client of its own.</summary>
+    /// <summary>
+    /// Creates a decider with an HTTP client of its own, which does not follow redirects: the
+    /// request goes to the endpoint that was configured and nowhere else.
+    /// </summary>
     /// <exception cref="ArgumentException">The options are not usable.</exception>
     public SystemOneDecider(SystemOneOptions options)
         : this(
             options,
             new HttpClient(
-                new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5) }
+                new SocketsHttpHandler
+                {
+                    PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+                    AllowAutoRedirect = false,
+                }
             )
             {
                 Timeout = Timeout.InfiniteTimeSpan,
@@ -162,6 +169,16 @@ public sealed class SystemOneDecider : IDecider, IDisposable
                     );
 
                 var status = (int)response.StatusCode;
+
+                // Not followed, even by a client that would: the endpoint is the one configured.
+                if (status is >= 300 and < 400)
+                    throw Refused(
+                        request,
+                        $"the model answered {status} {response.ReasonPhrase}, a redirect, and "
+                            + "redirects are not followed: the endpoint is the one configured",
+                        FailureClass.Permanent
+                    );
+
                 var detail = await Detail(response, timeout.Token).ConfigureAwait(false);
                 failure = $"the model answered {status} {response.ReasonPhrase}{detail}";
 

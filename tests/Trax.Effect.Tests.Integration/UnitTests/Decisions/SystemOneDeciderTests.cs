@@ -341,6 +341,39 @@ public class SystemOneDeciderTests
         model.Requests.Should().ContainSingle();
     }
 
+    [Test]
+    public async Task Decide_DoesNotFollowARedirect()
+    {
+        // Through the decider's own client, against a real socket, so its handler is what is
+        // tested: the configured endpoint answers with a redirect to a path that would answer.
+        using var server = new RedirectingServer(Answered);
+        using var decider = new SystemOneDecider(Options(o => o.Endpoint = server.Endpoint));
+
+        var decide = () => decider.Decide(Ticket, CancellationToken.None);
+
+        var failure = (await decide.Should().ThrowAsync<DecisionServiceException>()).Which;
+        failure.Message.Should().Contain("307").And.Contain("redirects are not followed");
+        ClassOf(failure).Should().Be(FailureClass.Permanent);
+        server.Followed.Should().Be(0);
+    }
+
+    [TestCase(HttpStatusCode.MovedPermanently)]
+    [TestCase(HttpStatusCode.TemporaryRedirect)]
+    public async Task Decide_ARedirectHandedBackByTheCallersClient_FailsPermanently(
+        HttpStatusCode status
+    )
+    {
+        var model = new FakeModel(_ => Status(status));
+        using var decider = new SystemOneDecider(Options(), new HttpClient(model));
+
+        var decide = () => decider.Decide(Ticket, CancellationToken.None);
+
+        var failure = (await decide.Should().ThrowAsync<DecisionServiceException>()).Which;
+        failure.Message.Should().Contain("redirects are not followed");
+        ClassOf(failure).Should().Be(FailureClass.Permanent);
+        model.Requests.Should().ContainSingle();
+    }
+
     [TestCase(null, "jev-1.13.0", "Endpoint is required")]
     [TestCase("http://models.example.test/v1/systemone", "jev-1.13.0", "is not HTTPS")]
     [TestCase("https://api.example.test/v1/systemone", null, "Model is required")]
@@ -808,6 +841,68 @@ public class SystemOneDeciderTests
     }
 
     private sealed record SentRequest(string? Authorization, JsonNode Body);
+
+    /// <summary>
+    /// A loopback server whose System One path redirects, with a 307 that keeps the method and
+    /// body, to a path that answers.
+    /// </summary>
+    private sealed class RedirectingServer : IDisposable
+    {
+        private readonly HttpListener _listener = new();
+
+        private int _followed;
+
+        public RedirectingServer(string answer)
+        {
+            var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+            probe.Start();
+            var port = ((IPEndPoint)probe.LocalEndpoint).Port;
+            probe.Stop();
+
+            Endpoint = new Uri($"http://127.0.0.1:{port}/v1/systemone");
+            _listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+            _listener.Start();
+            _ = Serve(answer);
+        }
+
+        public Uri Endpoint { get; }
+
+        public int Followed => Volatile.Read(ref _followed);
+
+        private async Task Serve(string answer)
+        {
+            while (_listener.IsListening)
+            {
+                HttpListenerContext context;
+
+                try
+                {
+                    context = await _listener.GetContextAsync();
+                }
+                catch (Exception e) when (e is HttpListenerException or ObjectDisposedException)
+                {
+                    return;
+                }
+
+                if (context.Request.Url!.AbsolutePath == "/v1/systemone")
+                {
+                    context.Response.StatusCode = 307;
+                    context.Response.RedirectLocation = "/elsewhere";
+                }
+                else
+                {
+                    Interlocked.Increment(ref _followed);
+                    var bytes = Encoding.UTF8.GetBytes(answer);
+                    context.Response.ContentType = "application/json";
+                    await context.Response.OutputStream.WriteAsync(bytes);
+                }
+
+                context.Response.Close();
+            }
+        }
+
+        public void Dispose() => _listener.Close();
+    }
 
     /// <summary>A model endpoint that answers by attempt number, and can hang until cancelled.</summary>
     private sealed class FakeModel(
