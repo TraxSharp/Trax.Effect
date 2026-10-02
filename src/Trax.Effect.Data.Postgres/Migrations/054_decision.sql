@@ -36,3 +36,11 @@ ALTER TABLE trax.metadata ADD COLUMN IF NOT EXISTS decisions_recorded boolean NO
 -- reached is asked afresh.
 ALTER TABLE trax.work_queue ADD COLUMN IF NOT EXISTS replay_decisions_of bigint;
 ALTER TABLE trax.metadata ADD COLUMN IF NOT EXISTS replay_decisions_of bigint;
+
+-- The metadata cleanup keeps a run while a queued entry or another run still replays it, and
+-- looks that up by these columns. Few rows carry a link, so the indexes are partial; built
+-- CONCURRENTLY so the build does not block writes to either table (effect/0014).
+CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_work_queue_replay_decisions_of
+    ON trax.work_queue (replay_decisions_of) WHERE replay_decisions_of IS NOT NULL;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_metadata_replay_decisions_of
+    ON trax.metadata (replay_decisions_of) WHERE replay_decisions_of IS NOT NULL;

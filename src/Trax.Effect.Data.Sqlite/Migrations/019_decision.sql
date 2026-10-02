@@ -20,3 +20,7 @@ CREATE TABLE IF NOT EXISTS decision (
 ALTER TABLE metadata ADD COLUMN decisions_recorded INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE work_queue ADD COLUMN replay_decisions_of INTEGER;
 ALTER TABLE metadata ADD COLUMN replay_decisions_of INTEGER;
+CREATE INDEX IF NOT EXISTS ix_work_queue_replay_decisions_of
+    ON work_queue (replay_decisions_of) WHERE replay_decisions_of IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_metadata_replay_decisions_of
+    ON metadata (replay_decisions_of) WHERE replay_decisions_of IS NOT NULL;
