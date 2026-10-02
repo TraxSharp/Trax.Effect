@@ -390,8 +390,11 @@ public sealed class SystemOneDecider : IDecider, IDisposable
                 _ => throw new MalformedResponse("its 'model' is not a string"),
             };
 
+            // A response without its answers is not a System One response, however it is
+            // otherwise shaped; read as answering nothing, it would fail the train as unanswered
+            // instead of being retried.
             if (root["answers"] is not JsonObject given)
-                return new DecisionResult(answers);
+                throw new MalformedResponse("it has no 'answers' object");
 
             foreach (var question in request.Questions)
                 if (given[question.Key] is JsonObject node && Answer(node, question) is { } answer)

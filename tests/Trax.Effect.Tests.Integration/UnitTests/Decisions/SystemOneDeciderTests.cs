@@ -598,6 +598,9 @@ public class SystemOneDeciderTests
     [TestCase("")]
     [TestCase("[1, 2]")]
     [TestCase("""{"model": 7, "answers": {}}""")]
+    [TestCase("""{"model": "jev-1.13.0"}""")]
+    [TestCase("""{"model": "jev-1.13.0", "answers": null}""")]
+    [TestCase("""{"model": "jev-1.13.0", "answers": []}""")]
     public async Task Decide_ASuccessThatIsNotASystemOneResponse_IsRetriedThenFailsTransiently(
         string body
     )
