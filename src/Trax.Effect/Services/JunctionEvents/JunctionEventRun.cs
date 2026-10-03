@@ -1,3 +1,4 @@
+using Trax.Effect.Enums;
 using Trax.Effect.Models.Metadata;
 using Trax.Effect.Services.Decisions;
 using Trax.Effect.Services.TrainEventBroadcaster;
@@ -81,8 +82,9 @@ internal sealed class JunctionEventRun
     public int? TrackPosition { get; private set; }
 
     /// <summary>
-    /// True once the run has taken a track whose answer is withheld. From then on its junctions'
-    /// names are withheld too, since they would give the track away. It is never cleared, for the
+    /// True once the run has taken a track whose answer is withheld. From then on the names of its
+    /// junctions, questions and routing steps are withheld too, with the questions' keys and
+    /// answers, since they would give the track away. It is never cleared, for the
     /// same reason <see cref="TrackPosition"/> never ends.
     /// </summary>
     public bool WithholdsNames { get; private set; }
@@ -95,14 +97,30 @@ internal sealed class JunctionEventRun
             WithholdsNames = true;
     }
 
-    /// <summary>A junction's step as the run's tracks so far require it to be published.</summary>
+    /// <summary>
+    /// A step as the run's tracks so far require it to be published and stored: a junction, a
+    /// question or a routing step. While <see cref="WithholdsNames"/> is set, its name is withheld,
+    /// and so are a question's or a routing step's key, answer, confidence and decider, because
+    /// what a track asks and how it routes would give the track away as much as its junctions'
+    /// names.
+    /// </summary>
     public JunctionEventPayload OnTrack(JunctionEventPayload step) =>
-        step with
-        {
-            Name = WithholdsNames ? JunctionEventPayload.WithheldName : step.Name,
-            NameWithheld = WithholdsNames,
-            TrackPosition = TrackPosition,
-        };
+        WithholdsNames
+            ? step with
+            {
+                Name = JunctionEventPayload.WithheldName,
+                NameWithheld = true,
+                QuestionKey = null,
+                Answer = null,
+                Confidence = null,
+                Decider = null,
+                AnswerWithheld = step.AnswerWithheld || step.Kind != JunctionRunKind.Junction,
+                TrackPosition = TrackPosition,
+            }
+            : step with
+            {
+                TrackPosition = TrackPosition,
+            };
 
     /// <summary>The next position in the run's timeline.</summary>
     public int NextPosition() => Interlocked.Increment(ref _position);

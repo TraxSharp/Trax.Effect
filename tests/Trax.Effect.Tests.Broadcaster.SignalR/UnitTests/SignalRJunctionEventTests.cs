@@ -325,6 +325,38 @@ public class SignalRJunctionEventTests
         step.TrackPosition.Should().Be(1);
     }
 
+    [TestCase(false, null, null)]
+    [TestCase(true, "Lane", "Express")]
+    public async Task A_question_on_a_decision_track_is_named_only_where_answers_are_sent(
+        bool answers,
+        string? key,
+        string? answer
+    )
+    {
+        var options = answers
+            ? NewOptions().WithJunctionAnswers()
+            : NewOptions().WithJunctionEvents();
+        var d = Create(options.Build());
+        object? sent = null;
+        await _client.JunctionEvent(Arg.Do<object>(p => sent = p));
+
+        var decided = Decided();
+        await d.HandleAsync(
+            decided with
+            {
+                Junction = decided.Junction! with { TrackPosition = 1, Name = "Lane" },
+            },
+            CancellationToken.None
+        );
+        await d.StopAsync(CancellationToken.None);
+
+        var step = sent.Should().BeOfType<TraxJunctionClientEvent>().Subject;
+        step.QuestionKey.Should()
+            .Be(key, $"a question asked on a track gives its answer away. See {Adr}.");
+        step.Name.Should().Be(key ?? "(withheld)");
+        step.Answer.Should().Be(answer);
+    }
+
     [Test]
     public void Only_a_sink_that_asked_registers_as_a_junction_event_handler()
     {

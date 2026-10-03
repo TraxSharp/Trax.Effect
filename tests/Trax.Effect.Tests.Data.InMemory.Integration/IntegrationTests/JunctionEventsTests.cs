@@ -455,6 +455,85 @@ public class JunctionEventsTests
     }
 
     [Test]
+    public async Task Questions_and_routes_on_a_track_whose_answer_is_withheld_are_withheld_too()
+    {
+        Decider.Use(new ScriptedDecider().Choose(CustomsTier.Red, 0.99).Choose(Lane.Express, 0.9));
+
+        var (metadataId, _) = await Run<IInspectionTrain>();
+
+        var steps = Handler.For(metadataId).Select(e => e.Junction!).ToList();
+        var customs = steps.Single(s => s.Kind == JunctionRunKind.Route && !s.NameWithheld);
+        customs.Name.Should().Be(nameof(CustomsTier));
+
+        // The Lane question and its route are asked on the Red track, so they are its steps.
+        var onTrack = steps.Where(s => s.Position > customs.Position).ToList();
+        onTrack
+            .Where(s => s.Kind != JunctionRunKind.Junction)
+            .Should()
+            .HaveCount(2)
+            .And.OnlyContain(
+                s =>
+                    s.NameWithheld
+                    && s.Name == JunctionEventPayload.WithheldName
+                    && s.QuestionKey == null
+                    && s.Answer == null
+                    && s.Confidence == null
+                    && s.Decider == null
+                    && s.AnswerWithheld
+                    && s.TrackPosition != null,
+                $"what a withheld track asks and where it goes would give it away. See {Adr}."
+            );
+        onTrack.Should().OnlyContain(s => s.NameWithheld);
+
+        var rows = await Rows(metadataId);
+        rows.Where(r => r.Position > customs.Position)
+            .Should()
+            .OnlyContain(r =>
+                r.NameWithheld
+                && r.Name == JunctionEventPayload.WithheldName
+                && r.QuestionKey == null
+                && r.Answer == null
+                && r.Confidence == null
+            );
+
+        var published = Broadcaster
+            .For(metadataId)
+            .Concat(Handler.For(metadataId))
+            .Select(m => JsonSerializer.Serialize(m.Junction));
+        var stored = rows.Select(r => JsonSerializer.Serialize(r));
+        foreach (var json in published.Concat(stored))
+        {
+            json.Should().NotContain(nameof(Lane)).And.NotContain(nameof(Lane.Express));
+            json.Should().NotContain($"\"{nameof(CustomsTier.Red)}\"");
+        }
+    }
+
+    [Test]
+    public async Task A_sensitive_question_on_an_open_track_keeps_its_key_and_withholds_what_follows()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Lane.Ground, 0.9).Choose(CustomsTier.Green, 0.99));
+
+        var (metadataId, _) = await Run<IGroundInspectionTrain>();
+
+        var steps = Handler.For(metadataId).Select(e => e.Junction!).ToList();
+        var lane = steps.Single(s => s.Kind == JunctionRunKind.Route && s.Name == nameof(Lane));
+        lane.Answer.Should().Be(nameof(Lane.Ground));
+
+        var customs = steps.Single(s =>
+            s.Kind == JunctionRunKind.Route && s.Name == nameof(CustomsTier)
+        );
+        customs.TrackPosition.Should().Be(lane.Position);
+        customs.Answer.Should().BeNull();
+        customs.AnswerWithheld.Should().BeTrue();
+
+        steps
+            .Where(s => s.Position > customs.Position)
+            .Should()
+            .NotBeEmpty()
+            .And.OnlyContain(s => s.NameWithheld && s.TrackPosition == customs.Position);
+    }
+
+    [Test]
     public async Task Junctions_on_any_decision_track_carry_its_position_and_keep_their_names()
     {
         Decider.Use(new ScriptedDecider().Choose(Lane.Express, 0.9));
@@ -833,7 +912,9 @@ internal static class JunctionEventTrains
             .AddScopedTraxRoute<ICustomsTrain, CustomsTrain>()
             .AddScopedTraxRoute<IHeldTrain, HeldTrain>()
             .AddScopedTraxRoute<IAuditTrain, AuditTrain>()
-            .AddScopedTraxRoute<ICustomsThenStampTrain, CustomsThenStampTrain>();
+            .AddScopedTraxRoute<ICustomsThenStampTrain, CustomsThenStampTrain>()
+            .AddScopedTraxRoute<IInspectionTrain, InspectionTrain>()
+            .AddScopedTraxRoute<IGroundInspectionTrain, GroundInspectionTrain>();
 }
 
 /// <summary>Records every junction event it is handed.</summary>
@@ -1103,6 +1184,54 @@ public class CustomsThenStampTrain : ServiceTrain<Parcel, string>, ICustomsThenS
                 tracks
                     .When(CustomsTier.Green, t => t.Chain<Load>())
                     .When(CustomsTier.Red, t => t.Chain<Load>())
+            )
+            .Chain<Stamp>()
+            .Resolve();
+}
+
+public interface IInspectionTrain : IServiceTrain<Parcel, string>;
+
+/// <summary>Its Red track asks a question of its own, which is not sensitive.</summary>
+public class InspectionTrain : ServiceTrain<Parcel, string>, IInspectionTrain
+{
+    protected override Task<Either<Exception, string>> Junctions() =>
+        Chain<Weigh>()
+            .Switch<Parcel, CustomsTier>(tracks =>
+                tracks
+                    .When(CustomsTier.Green, t => t.Chain<Load>())
+                    .When(
+                        CustomsTier.Red,
+                        t =>
+                            t.Switch<Parcel, Lane>(lanes =>
+                                lanes
+                                    .When(Lane.Express, l => l.Chain<Load>())
+                                    .When(Lane.Ground, l => l.Chain<Load>())
+                            )
+                    )
+            )
+            .Chain<Stamp>()
+            .Resolve();
+}
+
+public interface IGroundInspectionTrain : IServiceTrain<Parcel, string>;
+
+/// <summary>Its Ground track asks a sensitive question.</summary>
+public class GroundInspectionTrain : ServiceTrain<Parcel, string>, IGroundInspectionTrain
+{
+    protected override Task<Either<Exception, string>> Junctions() =>
+        Chain<Weigh>()
+            .Switch<Parcel, Lane>(tracks =>
+                tracks
+                    .When(Lane.Express, t => t.Chain<Load>())
+                    .When(
+                        Lane.Ground,
+                        t =>
+                            t.Switch<Parcel, CustomsTier>(tiers =>
+                                tiers
+                                    .When(CustomsTier.Green, c => c.Chain<Load>())
+                                    .When(CustomsTier.Red, c => c.Chain<Load>())
+                            )
+                    )
             )
             .Chain<Stamp>()
             .Resolve();

@@ -16,6 +16,9 @@ namespace Trax.Effect.Services.JunctionEvents;
 /// its flow, such as a plain train run inside a junction, is not reported. The state the question
 /// was about, its instructions and criteria, a shadow's answers and a refusal's reason are never
 /// published; an answer to a question about a type marked <c>[TraxSensitive]</c> is withheld.
+/// Each step carries the track it is on, as a junction's does, and on a track whose answer is
+/// withheld its name, key, answer, confidence and decider are withheld too
+/// (<see cref="JunctionEventRun.OnTrack"/>).
 /// </remarks>
 internal sealed class JunctionEventDecisionObserver : IDecisionObserver
 {
@@ -35,20 +38,22 @@ internal sealed class JunctionEventDecisionObserver : IDecisionObserver
 
         await run.Publish(
             TrainLifecycleEventMessage.DecidedEventType,
-            new JunctionEventPayload(
-                run.NextPosition(),
-                kind,
-                key,
-                JunctionRunState.Completed,
-                now,
-                now,
-                0,
-                QuestionKey: key,
-                Answer: answer,
-                Confidence: confidence,
-                Replayed: decision.Replayed,
-                Decider: decision.Decider?.FullName,
-                AnswerWithheld: withheld
+            run.OnTrack(
+                new JunctionEventPayload(
+                    run.NextPosition(),
+                    kind,
+                    key,
+                    JunctionRunState.Completed,
+                    now,
+                    now,
+                    0,
+                    QuestionKey: key,
+                    Answer: answer,
+                    Confidence: confidence,
+                    Replayed: decision.Replayed,
+                    Decider: decision.Decider?.FullName,
+                    AnswerWithheld: withheld
+                )
             )
         );
     }
@@ -69,17 +74,19 @@ internal sealed class JunctionEventDecisionObserver : IDecisionObserver
         // on, and the reason quotes it.
         await run.Publish(
             TrainLifecycleEventMessage.DecisionRefusedEventType,
-            new JunctionEventPayload(
-                run.NextPosition(),
-                kind,
-                key,
-                JunctionRunState.Failed,
-                now,
-                now,
-                0,
-                QuestionKey: key,
-                Decider: refusal.Decider.FullName,
-                AnswerWithheld: SensitiveQuestions.IsSensitive(refusal.QuestionType, key)
+            run.OnTrack(
+                new JunctionEventPayload(
+                    run.NextPosition(),
+                    kind,
+                    key,
+                    JunctionRunState.Failed,
+                    now,
+                    now,
+                    0,
+                    QuestionKey: key,
+                    Decider: refusal.Decider.FullName,
+                    AnswerWithheld: SensitiveQuestions.IsSensitive(refusal.QuestionType, key)
+                )
             )
         );
     }
@@ -96,13 +103,9 @@ internal sealed class JunctionEventDecisionObserver : IDecisionObserver
 
         var position = run.NextPosition();
 
-        // Junctions from here on are on this track; when its answer is withheld, so are their
-        // names, which would give the track away.
-        run.Routed(position, withheld);
-
-        // The track taken gives the answer away, so it is withheld with it.
-        await run.Publish(
-            TrainLifecycleEventMessage.RoutedEventType,
+        // The routing step is on the track the run was on before it, and is published as that
+        // track requires: on a withheld track its key and track are withheld with its name.
+        var step = run.OnTrack(
             new JunctionEventPayload(
                 position,
                 JunctionRunKind.Route,
@@ -112,10 +115,17 @@ internal sealed class JunctionEventDecisionObserver : IDecisionObserver
                 now,
                 0,
                 QuestionKey: key,
+                // The track taken gives the answer away, so it is withheld with it.
                 Answer: withheld ? null : routing.Track,
                 AnswerWithheld: withheld
             )
         );
+
+        // Every step from here on is on this track; when its answer is withheld, so are their
+        // names, which would give the track away.
+        run.Routed(position, withheld);
+
+        await run.Publish(TrainLifecycleEventMessage.RoutedEventType, step);
     }
 
     private static JunctionRunKind? KindOf(Question question) =>
