@@ -339,8 +339,11 @@ public sealed class DecisionJournal(
         // A run that was never persisted has no row to write against; its decisions are logged.
         long? metadataId = metadata.Id > 0 ? metadata.Id : null;
 
-        var replay = metadata.ReplayDecisionsOf is { } source
-            ? await LoadReplay(
+        var replay = NothingToReplay;
+
+        if (metadata.ReplayDecisionsOf is { } source)
+        {
+            (replay, var abandoned) = await LoadReplay(
                 new Replaying(
                     metadata.Id,
                     metadata.Name,
@@ -349,8 +352,12 @@ public sealed class DecisionJournal(
                     metadata.ManifestId is not null
                 ),
                 cancellationToken
-            )
-            : NothingToReplay;
+            );
+
+            // Set on the run's own row too, so the outcome it writes keeps it.
+            if (abandoned)
+                metadata.ReplayAbandoned = true;
+        }
 
         var run = new DecisionRun(metadata.ExternalId, train, metadataId, replay);
 
@@ -409,10 +416,15 @@ public sealed class DecisionJournal(
     /// reached, those of the run that one replayed, and so on back. A requeue of a requeue that
     /// failed before it reached a question still takes the track the first run took there.
     /// </summary>
-    private async Task<IReadOnlyDictionary<(string, int), RecordedAnswer>> LoadReplay(
-        Replaying metadata,
-        CancellationToken cancellationToken
-    )
+    /// <returns>
+    /// The answers, and whether the run abandoned its replay: a manifest's retry whose chain is
+    /// broken asks afresh, and that is written to its row at once
+    /// (<see cref="Metadata.ReplayAbandoned"/>), so a run that dies mid-way is marked too.
+    /// </returns>
+    private async Task<(
+        IReadOnlyDictionary<(string, int), RecordedAnswer> Answers,
+        bool Abandoned
+    )> LoadReplay(Replaying metadata, CancellationToken cancellationToken)
     {
         var source = metadata.Source;
 
@@ -450,6 +462,8 @@ public sealed class DecisionJournal(
                         m.Name,
                         m.ReplayDecisionsOf,
                         m.DecisionsRecorded,
+                        m.ReplayAbandoned,
+                        m.ManifestId,
                     })
                     .FirstOrDefaultAsync(cancellationToken);
 
@@ -470,12 +484,23 @@ public sealed class DecisionJournal(
                     break;
                 }
 
+                // A run that abandoned its replay asked afresh, so it never acted on the answers
+                // of the run it named. A manifest's retry on a host that records no decisions
+                // always does, whether or not its row says so yet (the mark is written with its
+                // outcome there, which a run that died mid-way never wrote).
+                var abandoned =
+                    link.ReplayDecisionsOf is not null
+                    && (
+                        link.ReplayAbandoned
+                        || (!link.DecisionsRecorded && link.ManifestId is not null)
+                    );
+
                 // A run that did not record its decisions may have acted on answers nobody can
                 // know now. One that replays an earlier run made none of its own, because a run
                 // that names a run to replay fails before its first junction where decisions are
-                // not recorded, so the replay goes on to the run it named. One that does not was
-                // the first, and what it decided is lost.
-                if (!link.DecisionsRecorded && link.ReplayDecisionsOf is null)
+                // not recorded, unless it abandoned that replay, so the replay goes on to the run
+                // it named. One that does not was the first, and what it decided is lost.
+                if (!link.DecisionsRecorded && (link.ReplayDecisionsOf is null || abandoned))
                 {
                     broken =
                         $"run {id} ran without recording its decisions, so what it decided "
@@ -485,7 +510,10 @@ public sealed class DecisionJournal(
 
                 chain.Add(id);
                 replayedBy = id;
-                next = link.ReplayDecisionsOf;
+
+                // A recording run that abandoned its replay answered every question it reached
+                // itself, so the chain ends with it.
+                next = abandoned ? null : link.ReplayDecisionsOf;
             }
 
             recorded = broken is not null ? [] : (
@@ -534,7 +562,8 @@ public sealed class DecisionJournal(
                 source,
                 broken
             );
-            return NothingToReplay;
+            await MarkAbandoned(metadata, cancellationToken);
+            return (NothingToReplay, true);
         }
 
         var answers = new Dictionary<(string, int), RecordedAnswer>();
@@ -604,7 +633,42 @@ public sealed class DecisionJournal(
             }
         }
 
-        return answers;
+        return (answers, false);
+    }
+
+    /// <summary>
+    /// Marks the run's row as having abandoned its replay, at once, so a later replay of it stops
+    /// there even if the run never writes its outcome. A failure is logged: the run carries on, and
+    /// its outcome writes the mark when it is written.
+    /// </summary>
+    private async Task MarkAbandoned(Replaying metadata, CancellationToken cancellationToken)
+    {
+        if (metadata.Id <= 0)
+            return;
+
+        try
+        {
+            using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+            var row = await context.Metadatas.FirstOrDefaultAsync(
+                m => m.Id == metadata.Id,
+                cancellationToken
+            );
+            if (row is null || row.ReplayAbandoned)
+                return;
+
+            row.ReplayAbandoned = true;
+            await context.SaveChanges(cancellationToken);
+        }
+        catch (Exception e)
+            when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                e,
+                "Could not mark retry {RunId} of train {Train} as asking afresh; its outcome marks it.",
+                metadata.ExternalId,
+                metadata.Name
+            );
+        }
     }
 
     /// <summary>
@@ -741,10 +805,12 @@ public sealed class DecisionJournal(
 
         var answers =
             replay && source is { } replayed
-                ? await LoadReplay(
-                    new Replaying(id, name, runId, replayed, retry),
-                    cancellationToken
-                )
+                ? (
+                    await LoadReplay(
+                        new Replaying(id, name, runId, replayed, retry),
+                        cancellationToken
+                    )
+                ).Answers
                 : NothingToReplay;
 
         return new DecisionRun(runId, train, id, answers);

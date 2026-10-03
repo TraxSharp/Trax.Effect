@@ -601,7 +601,9 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
     /// </summary>
     /// <remarks>
     /// A run queued to replay an earlier run's decisions cannot honour that on a host that records
-    /// none, so it fails, classified permanent, instead of asking afresh. See Trax.Docs/adr/0041.
+    /// none, so it fails, classified permanent, instead of asking afresh, unless it is a manifest's
+    /// retry: that asks afresh, with a warning, and is marked <see cref="Trax.Effect.Models.Metadata.Metadata.ReplayAbandoned"/>.
+    /// See Trax.Docs/adr/0041.
     /// </remarks>
     private async Task<DecisionRun?> BeginDecisions()
     {
@@ -645,6 +647,10 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
             // original's decisions, so it asks afresh rather than failing the retry.
             if (Metadata.ManifestId is null)
                 throw DecisionRun.Unreplayable(Metadata, why);
+
+            // Recorded, so a later replay of this run stops here rather than going on to the
+            // run it named, whose answers this one never acted on. Written with the outcome.
+            Metadata.ReplayAbandoned = true;
 
             Logger?.LogWarning(
                 "Retry {RunId} of train ({TrainName}) asks its questions afresh instead of replaying "

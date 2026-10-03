@@ -803,6 +803,10 @@ namespace Trax.Effect.Models.Metadata
         [System.Text.Json.Serialization.JsonInclude]
         [System.Text.Json.Serialization.JsonPropertyName("parent_id")]
         public long? ParentId { get; set; }
+        [System.ComponentModel.DataAnnotations.Schema.Column("replay_abandoned")]
+        [System.Text.Json.Serialization.JsonInclude]
+        [System.Text.Json.Serialization.JsonPropertyName("replay_abandoned")]
+        public bool ReplayAbandoned { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("replay_decisions_of")]
         [System.Text.Json.Serialization.JsonInclude]
         [System.Text.Json.Serialization.JsonPropertyName("replay_decisions_of")]

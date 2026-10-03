@@ -435,7 +435,7 @@ public class DecisionRecordingTests
             .BuildServiceProvider();
         var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
 
-        await RunOn(
+        var retry = await RunOn(
             provider,
             new Order("o-retry-unrecorded", 20m),
             replayDecisionsOf: 1,
@@ -443,6 +443,88 @@ public class DecisionRecordingTests
         );
 
         decider.Requests.Should().ContainSingle();
+        using var scope = provider.CreateScope();
+        var row = await scope
+            .ServiceProvider.GetRequiredService<IDataContext>()
+            .Metadatas.AsNoTracking()
+            .SingleAsync(m => m.Id == retry);
+        row.ReplayAbandoned.Should().BeTrue($"the retry asked afresh. See {Adr}.");
+        row.ReplayDecisionsOf.Should().Be(1, "what it was queued to do is kept");
+    }
+
+    [Test]
+    public async Task A_manifest_retry_that_asked_afresh_is_replayed_for_its_own_answers()
+    {
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+        var retry = await RunOn(
+            _provider,
+            new Order("o-retry-abandoned", 20m),
+            replayDecisionsOf: 987_654_323,
+            manifestId: 1
+        );
+        decider.Requests.Should().ContainSingle();
+
+        var later = Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+        var (requeued, output) = await Run<IRouteOrder>(
+            new Order("o-retry-abandoned", 20m),
+            replayDecisionsOf: retry
+        );
+
+        output.Should().Be("shipped", $"the retry's own answer is the one to repeat. See {Adr}.");
+        later.Requests.Should().BeEmpty();
+        (await Recorded(requeued.Metadata!.Id)).Single().Replayed.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task A_replay_stops_at_a_run_that_abandoned_its_replay()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+        var (original, _) = await Run<IRouteOrder>(new Order("o-stop", 20m));
+
+        // A retry of the original that asked afresh and died before it reached the question.
+        var retry = await Seed<IRouteOrder>(
+            replayDecisionsOf: original.Metadata!.Id,
+            decisionsRecorded: true,
+            replayAbandoned: true
+        );
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+
+        var (_, output) = await Run<IRouteOrder>(
+            new Order("o-stop", 20m),
+            replayDecisionsOf: retry
+        );
+
+        output
+            .Should()
+            .Be(
+                "shipped",
+                $"the retry never acted on the original's answers, so neither does its replay. See {Adr}."
+            );
+        decider.Requests.Should().ContainSingle();
+    }
+
+    [Test]
+    public async Task A_requeue_of_a_retry_that_asked_afresh_unrecorded_fails()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+        var (original, _) = await Run<IRouteOrder>(new Order("o-unrecorded-retry", 20m));
+
+        // A manifest's retry on a host that records nothing, which died before its outcome.
+        var retry = await Seed<IRouteOrder>(
+            replayDecisionsOf: original.Metadata!.Id,
+            manifestId: 1
+        );
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+
+        var (_, run) = Start<IRouteOrder>(
+            new Order("o-unrecorded-retry", 20m),
+            replayDecisionsOf: retry
+        );
+
+        await run.Should()
+            .ThrowAsync<Exception>()
+            .WithMessage($"*run {retry} ran without recording its decisions*");
+        decider.Requests.Should().BeEmpty();
     }
 
     [Test]
@@ -1205,7 +1287,12 @@ public class DecisionRecordingTests
     private static string Id() => Guid.NewGuid().ToString("N");
 
     /// <summary>A run of <typeparamref name="TTrain"/> that never reached a question.</summary>
-    private async Task<long> Seed<TTrain>(long? replayDecisionsOf, bool decisionsRecorded = false)
+    private async Task<long> Seed<TTrain>(
+        long? replayDecisionsOf,
+        bool decisionsRecorded = false,
+        bool replayAbandoned = false,
+        long? manifestId = null
+    )
     {
         using var scope = _provider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<IDataContext>();
@@ -1217,10 +1304,12 @@ public class DecisionRecordingTests
                 ExternalId = Id(),
                 Input = new Order("seeded", 1m),
                 ReplayDecisionsOf = replayDecisionsOf,
+                ManifestId = manifestId,
             }
         );
 
         metadata.DecisionsRecorded = decisionsRecorded;
+        metadata.ReplayAbandoned = replayAbandoned;
         context.Metadatas.Add(metadata);
         await context.SaveChanges(CancellationToken.None);
         return metadata.Id;
