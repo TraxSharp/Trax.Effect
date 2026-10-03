@@ -371,8 +371,10 @@ public sealed class DecisionJournal(
     /// that cannot be replayed (it, or a run it replays in turn, does not exist, is a run of another
     /// train, ran without recording its decisions, or has an answer that cannot be read, or the
     /// runs lead back on themselves or further than <see cref="MaxReplayChain"/>) fails here,
-    /// classified permanent; one whose answers cannot be loaded because the database failed fails
-    /// classified transient. A run that recorded its decisions but reached no questions is
+    /// classified permanent, unless it is a manifest's retry, which asks afresh with a warning and
+    /// is marked <see cref="Metadata.ReplayAbandoned"/>; one whose answers cannot be loaded because
+    /// the database failed fails classified transient. The chain stops at a run marked
+    /// <see cref="Metadata.ReplayAbandoned"/>. A run that recorded its decisions but reached no questions is
     /// replayed like any other: there is nothing to repeat, and its questions are asked afresh.
     /// </summary>
     async Task<DecisionRun> IDecisionRunRecorder.Begin(

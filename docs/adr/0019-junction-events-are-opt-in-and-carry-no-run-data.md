@@ -116,32 +116,44 @@ and reports nothing. A junction skipped because an earlier one failed is not a s
 naming the step that asked, so a step is a `Choice` (Decide, Switch), `Score` (Scale) or `YesNo`
 (Gate), and each track taken adds a `Route`.
 
-**Withholding an answer withholds the path.** The junctions a track runs would name the track, so
-every junction after a route whose answer is withheld is published and stored as `(withheld)`, with
-`NameWithheld` set. Every junction after any route carries `TrackPosition`, the route's position, so
-a consumer that does not show a subscriber answers does not show it those names either; the SignalR
-sink withholds them unless it sends answers. Trax.Core reports where a track starts but not where
+**Withholding an answer withholds the path.** The steps a track runs would name the track, so every
+step after a route whose answer is withheld, a junction, a question or another route, is published,
+handed to local handlers and stored as `(withheld)`, with `NameWithheld` set, and a question's or
+route's key, answer, confidence and decider left out with `AnswerWithheld` set. Every step after any
+route carries `TrackPosition`, the route's position, so a consumer that does not show a subscriber
+answers does not show it those names or keys either; the SignalR sink withholds them unless it sends
+answers. A host's own `WithJunctionProjection` is used whether `WithJunctionAnswers` is called
+before or after it. Trax.Core reports where a track starts but not where
 it rejoins the chain, so a junction after the rejoin is counted as on the track too: this fails
-closed and hides some names that could have been shown. What stays visible is how many steps ran and
-how long each took, which can still differ by track; that is accepted, and a host for which even
-that is too much does not turn junction events on.
+closed and hides some names that could have been shown.
+
+What stays visible on a withheld track is accepted rather than closed, and a host for which it is
+too much does not turn junction events on: how many steps ran, their positions and kinds, and when
+each started and how long it took, which can differ by track; the exception type and failure class
+of a junction that failed there; the run's own failure, whose junction `metadata.failure_junction`
+and the train's `Failed` event name as they always have (junction events themselves leave it out);
+and a train started from a junction on the track, whose own run is named and has steps of its own.
 
 **Decision observers compose.** Trax.Core finds one `IDecisionObserver` in the container. Trax now
 registers a composite that tells every observer registered before `AddTrax` and every one Trax adds
 (decision recording, junction events): required ones first, so a decision that could not be
 recorded is not reported as made, then best-effort ones. An observer registered after `AddTrax` replaces the composite in the
-container; while a required observer such as decision recording is a part, the host refuses to
-start and every run that would record its decisions refuses too, so no decision is acted on
-unrecorded. An observer that cannot be built refuses the same way, with the reason, and decorating
-`IDecisionObserver` is refused like any replacement.
+container; while any of Trax's own observers is a part, the host refuses to start and every run
+refuses too: decision recording so no decision is acted on unrecorded, and junction events because
+withholding a track's steps depends on being told of every route. Each observer is built on its own.
+A host observer known to be best effort without building it (an instance that is not required, or a
+type that leaves `Required` to its default) that cannot be built is left out with a warning; any
+other that cannot be built refuses the same way, with the reason. Decorating `IDecisionObserver` is
+refused like any replacement.
 
 **A manifest's run carries its attempt.** When the run begins, one query on a context of its own
 counts the manifest's failed runs since its last completed or cancelled one, skipping the dispatch
 attempts Trax.Scheduler requeued (`DispatchRequeued`), and the run's steps and rows carry 1 plus that.
 A run with no manifest carries none rather than 1, because it is no attempt of anything, and a query
-that fails leaves the attempt out and the run alone. The query reads at most the manifest's 1000
-most recent runs through `ix_metadata_manifest_id_id`, so it does not grow with history, and a run
-waits on it for at most a second before carrying on without an attempt.
+that fails leaves the attempt out and the run alone. It is two range reads of
+`ix_metadata_manifest_id_id`, the latest completed or cancelled run below this one and a count of the
+failed runs above it, so it reads no row's content and sorts nothing, and a run waits on it for at
+most a second before carrying on without an attempt.
 
 **Publishing never fails a run.** A store, transport or handler failure is logged and swallowed.
 Local handlers run on the run's path and must return quickly.
@@ -160,13 +172,16 @@ Local handlers run on the run's path and must return quickly.
   train filter it already applies, without answers unless asked for them, through a host's own
   projection when it has one, and that its full queue gives up steps first.
 - `PostgresJunctionRunTests` and `SqliteJunctionRunTests` pin that the rows read back in order and
-  go with their run.
+  go with their run, and on Postgres that a burst of several batches lands every end.
+- `RabbitMqBroadcasterSenderTests` pins that a failing junction exchange is not tried again until
+  its backoff passes.
 
 Not covered: nothing stops a future field on `JunctionEventPayload` from carrying run data; the
 tests check the fields that exist against known secrets, not the shape of every future field.
 
 ## Changelog
 
+- **2026-10-02**: Questions and routes on a withheld track are withheld too; a replaced observer is refused while junction events are on; best-effort observers are built one by one; a host's junction projection wins in either order; the attempt is two indexed reads; the junction exchange backs off; what stays visible on a withheld track is listed.
 - **2026-10-02**: The writer reads a batch's rows in one query; a junction whose end was dropped stays `in_progress`, said as such.
 - **2026-10-02**: Junctions after a route carry its position, and after a withheld route their names are withheld.
 - **2026-10-02**: The junction exchange is declared only where steps are used, on channels of its own, and each exchange carries only its own kind of event.

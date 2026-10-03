@@ -108,7 +108,9 @@ public static class ServiceExtensions
     /// with <c>ReplayDecisionsOf</c> loads, when it starts, the answers of that run and, for
     /// questions it never reached, of the runs it replayed in turn; it fails, classified
     /// permanent, when a run in that chain does not exist, belongs to another train, or ran
-    /// without recording its decisions. Calling this more than once registers it once.
+    /// without recording its decisions. A manifest's retry asks afresh instead, with a warning,
+    /// and its row is marked <c>ReplayAbandoned</c>; a later replay stops at a run so marked. Calling
+    /// this more than once registers it once.
     ///
     /// <para>A requeued run replays the recorded answers only into the same state (Trax.Core
     /// compares the hash the journal stores with each answer, and asks afresh when it differs or
@@ -116,11 +118,16 @@ public static class ServiceExtensions
     /// by default, measured from when a decider gave them. An answer outside either is asked
     /// afresh.</para>
     ///
+    /// <para>The state hash is keyed with the key given to <c>HashStatesWith</c>, or base64 in
+    /// configuration under <c>Trax:Decisions:StateHashKey</c>. Without one, an answer to a question
+    /// whose state can hold a member marked <c>[TraxSensitive]</c> is recorded without a hash and is
+    /// never replayed.</para>
+    ///
     /// <para>The journal is told about each decision alongside every other
     /// <see cref="IDecisionObserver"/>: one the host registered before this call, and the one
     /// <c>AddJunctionEvents</c> adds. It is told first, because the decision is not acted on unless it
     /// is written. An observer registered as <see cref="IDecisionObserver"/> after <c>AddTrax</c>
-    /// replaces them all, as the container would; register it before.</para>
+    /// would replace them all, so the host's start and every run refuse; register it before.</para>
     /// </remarks>
     public static TraxEffectBuilderWithData AddDecisionRecording(
         this TraxEffectBuilderWithData configurationBuilder
@@ -197,7 +204,10 @@ public static class ServiceExtensions
     /// A failed junction is described by its exception's type and its failure class. A question's
     /// answer is summarised (the option, score or probability of yes, and the confidence), and left
     /// out entirely, track included, for a question about a type marked <c>[TraxSensitive]</c>.
-    /// The junctions a track runs are still named in their own steps.</para>
+    /// After a routing step whose answer is withheld, every later step of the run (a junction, a
+    /// question, a routing step) is published and stored with its name withheld, and a question's
+    /// or routing step's key, answer, confidence and decider withheld too, because they would give
+    /// the track away. The number, positions and timing of those steps still show.</para>
     ///
     /// <para><b>What it costs a run.</b> Nothing it does can fail a run or change a junction's
     /// result: a failure to store, broadcast or hand out a step is logged and swallowed. A step is
@@ -216,7 +226,10 @@ public static class ServiceExtensions
     /// key's cascade, so every existing delete of metadata removes it.</para>
     ///
     /// <para>Calling this more than once registers it once. Its decision observer is told alongside
-    /// any other, after the ones that are required, such as <c>AddDecisionRecording</c>'s.</para>
+    /// any other, after the ones that are required, such as <c>AddDecisionRecording</c>'s. Because
+    /// withholding depends on it being told of every routing, an <see cref="IDecisionObserver"/>
+    /// registered after <c>AddTrax</c>, which would replace it, refuses the host's start and every
+    /// run; register one before.</para>
     /// </remarks>
     public static TraxEffectBuilderWithData AddJunctionEvents(
         this TraxEffectBuilderWithData configurationBuilder

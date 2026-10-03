@@ -55,15 +55,19 @@ namespace Trax.Effect.Services.TrainEventBroadcaster;
 /// and track are left out.
 /// </param>
 /// <param name="NameWithheld">
-/// True for a junction that runs after a routing step whose answer is withheld (a question about a
-/// type marked <c>[TraxSensitive]</c>): its <paramref name="Name"/> is <see cref="WithheldName"/>,
-/// because which junctions ran would give the track, and so the answer, away.
+/// True for a step (a junction, a question or a routing step) that runs after a routing step whose
+/// answer is withheld (a question about a type marked <c>[TraxSensitive]</c>): its
+/// <paramref name="Name"/> is <see cref="WithheldName"/>, and a question's or routing step's
+/// <paramref name="QuestionKey"/>, <paramref name="Answer"/>, <paramref name="Confidence"/> and
+/// <paramref name="Decider"/> are left out, because which steps ran would give the track, and so
+/// the answer, away.
 /// </param>
 /// <param name="TrackPosition">
-/// For a junction, the <paramref name="Position"/> of the latest routing step (a <c>Route</c>) the run
+/// For any step, the <paramref name="Position"/> of the latest routing step (a <c>Route</c>) the run
 /// took before it, or null when no routing step has run yet. Trax.Core reports where a track
 /// starts but not where it rejoins the chain, so every junction after a route is counted as on its
-/// track. A subscriber that is not shown answers should not be shown these junctions' names either.
+/// track. A subscriber that is not shown answers should not be shown these steps' names or keys
+/// either.
 /// </param>
 /// <param name="Attempt">
 /// Which attempt of its manifest the run is: 1 plus the number of the manifest's failed runs since
