@@ -19,7 +19,8 @@ namespace Trax.Effect.Data.JunctionEvents;
 /// <para>A run only queues a step. One background writer takes the queue in order, in batches,
 /// through a short-lived data context of its own, so a write never flushes or inherits what the
 /// run's junctions have tracked, and never waits on, or fails, the run. A junction's row is
-/// inserted when it starts and updated when it ends.</para>
+/// inserted when it starts and updated when it ends; the rows a batch's ends update are read in one
+/// query, so a batch costs the same few round trips however many ends it holds.</para>
 ///
 /// <para>When the queue is full (<see cref="Capacity"/> steps waiting) a step is dropped, counted
 /// and logged, rather than holding up the run. A batch the database refuses is written again one
@@ -213,42 +214,54 @@ internal sealed class JunctionRunWriter
     private async Task WriteAsync(IReadOnlyList<Item> steps)
     {
         using var context = await _contexts.CreateDbContextAsync(CancellationToken.None);
+
+        // Only a junction's end updates a row; every other step is a row of its own. The rows the
+        // batch's ends update are read in one query, so a batch costs two round trips whatever its
+        // size, rather than one read per end.
+        var ends = steps
+            .Where(i => Ends(i.Step!))
+            .Select(i => (i.MetadataId, i.Step!.Position))
+            .ToList();
         var rows = new Dictionary<(long, int), JunctionRun>();
+
+        if (ends.Count > 0)
+        {
+            var runs = ends.Select(e => e.MetadataId).Distinct().ToList();
+            var positions = ends.Select(e => e.Position).Distinct().ToList();
+            var wanted = ends.ToHashSet();
+
+            foreach (
+                var existing in await context
+                    .JunctionRuns.Where(r =>
+                        runs.Contains(r.MetadataId) && positions.Contains(r.Position)
+                    )
+                    .ToListAsync()
+            )
+                if (wanted.Contains((existing.MetadataId, existing.Position)))
+                    rows[(existing.MetadataId, existing.Position)] = existing;
+        }
 
         foreach (var (metadataId, maybeStep, _) in steps)
         {
             var step = maybeStep!;
             var key = (metadataId, step.Position);
 
-            if (rows.TryGetValue(key, out var row))
-            {
-                Apply(row, step);
-                continue;
-            }
-
-            // Only a junction's end updates a row; every other step is a row of its own.
-            var ends =
-                step.Kind == JunctionRunKind.Junction && step.State != JunctionRunState.InProgress;
-
-            row = ends
-                ? await context.JunctionRuns.FirstOrDefaultAsync(r =>
-                    r.MetadataId == metadataId && r.Position == step.Position
-                )
-                : null;
-
-            if (row is null)
+            if (!rows.TryGetValue(key, out var row))
             {
                 // A start that was dropped leaves its end to write the whole row.
                 row = new JunctionRun { MetadataId = metadataId, Position = step.Position };
                 context.JunctionRuns.Add(row);
+                rows[key] = row;
             }
 
             Apply(row, step);
-            rows[key] = row;
         }
 
         await context.SaveChanges(CancellationToken.None);
     }
+
+    private static bool Ends(JunctionEventPayload step) =>
+        step.Kind == JunctionRunKind.Junction && step.State != JunctionRunState.InProgress;
 
     private static void Apply(JunctionRun row, JunctionEventPayload step)
     {

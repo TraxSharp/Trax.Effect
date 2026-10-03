@@ -20,6 +20,7 @@ using Trax.Effect.Models.Metadata.DTOs;
 using Trax.Effect.Services.EffectJunction;
 using Trax.Effect.Services.FailureClassifier;
 using Trax.Effect.Services.ServiceTrain;
+using Trax.Effect.Services.TrainEventBroadcaster;
 using Trax.Effect.Tests.Integration.Fixtures;
 
 namespace Trax.Effect.Tests.Integration.IntegrationTests;
@@ -134,6 +135,56 @@ public class PostgresJunctionRunTests
 
         foreach (var id in new[] { first, second, third })
             await Delete(id);
+    }
+
+    [Test]
+    public async Task A_burst_of_steps_is_written_in_batches_and_every_end_lands()
+    {
+        var metadataId = await Run();
+        var writer = _provider.GetRequiredService<JunctionRunWriter>();
+        var dropped = writer.DroppedSteps;
+        var start = DateTime.UtcNow;
+        const int Junctions = 1500;
+
+        // Several batches' worth of starts, then their ends, which update rows written by an
+        // earlier batch as well as by their own.
+        for (var position = 100; position < 100 + Junctions; position++)
+            writer.Write(
+                metadataId,
+                new JunctionEventPayload(
+                    position,
+                    JunctionRunKind.Junction,
+                    "Burst",
+                    JunctionRunState.InProgress,
+                    start
+                )
+            );
+        for (var position = 100; position < 100 + Junctions; position++)
+            writer.Write(
+                metadataId,
+                new JunctionEventPayload(
+                    position,
+                    JunctionRunKind.Junction,
+                    "Burst",
+                    JunctionRunState.Completed,
+                    start,
+                    start.AddMilliseconds(1),
+                    1
+                )
+            );
+        await writer.FlushAsync();
+
+        writer.DroppedSteps.Should().Be(dropped);
+        var burst = (await Rows(metadataId)).Where(r => r.Name == "Burst").ToList();
+        burst
+            .Should()
+            .HaveCount(Junctions)
+            .And.OnlyContain(
+                r => r.State == JunctionRunState.Completed && r.EndedAt != null,
+                $"an end updates the row its start wrote. See {Adr}."
+            );
+
+        await Delete(metadataId);
     }
 
     private async Task<long> Run(long? manifestId = null)

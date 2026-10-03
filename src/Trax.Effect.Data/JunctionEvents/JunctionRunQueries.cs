@@ -18,8 +18,11 @@ public static class JunctionRunQueries
     /// <para>The rows are written off the run's path, so a running run's newest steps can reach a
     /// live subscriber a moment before they reach this table. A subscriber that joins late
     /// subscribes first, then reads the steps so far, and keeps for each position whichever of the
-    /// two is further along (a later state, or an <c>EndedAt</c>); a step the writer dropped because
-    /// it fell behind or the database was down is missing from the table, never wrong in it.</para>
+    /// two is further along (a later state, or an <c>EndedAt</c>). A step the writer dropped because
+    /// it fell behind or the database was down is missing from the table, and a junction whose end
+    /// was dropped keeps the <c>InProgress</c> row its start wrote: read a row still in progress
+    /// together with its run's state, since a run that has ended has no junction still
+    /// running.</para>
     /// </remarks>
     /// <param name="runs">The junction run rows, normally <c>IDataContext.JunctionRuns</c>.</param>
     /// <param name="metadataId">The run's <c>Metadata.Id</c>.</param>

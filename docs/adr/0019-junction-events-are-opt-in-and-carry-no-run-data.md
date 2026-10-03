@@ -101,7 +101,13 @@ a run's writes mid-run), and drops a step, counted and logged, rather than hold 
 ## Consequences
 
 **The stored timeline can trail the live one.** A late subscriber subscribes first, reads
-`JunctionRuns.ForRun(id)`, and merges by position. A dropped step is missing, never wrong.
+`JunctionRuns.ForRun(id)`, and merges by position. A dropped step is missing, and a junction
+whose end was dropped stays `in_progress` after its run has ended; the row's state is read together
+with the run's. The writer reads the rows a batch's ends update in one query, so a burst costs two
+round trips per batch rather than one per end, which keeps drops to a database that cannot keep up
+at all. Reconciling a run's `in_progress` rows when it ends was not taken: the writer cannot tell
+how a junction whose end it never saw ended, and a guessed state would be wrong where a stale one
+is only out of date.
 
 **Only `EffectJunction`s are steps.** A plain `Junction` in a service train runs no junction effects
 and reports nothing. A junction skipped because an earlier one failed is not a step.
@@ -161,6 +167,7 @@ tests check the fields that exist against known secrets, not the shape of every 
 
 ## Changelog
 
+- **2026-10-02**: The writer reads a batch's rows in one query; a junction whose end was dropped stays `in_progress`, said as such.
 - **2026-10-02**: Junctions after a route carry its position, and after a withheld route their names are withheld.
 - **2026-10-02**: The junction exchange is declared only where steps are used, on channels of its own, and each exchange carries only its own kind of event.
 - **2026-10-02**: A run with no row has no steps; sensitivity is decided by the question's type; the journal's log withholds sensitive answers.
