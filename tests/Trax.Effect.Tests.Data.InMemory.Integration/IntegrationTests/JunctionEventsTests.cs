@@ -416,6 +416,64 @@ public class JunctionEventsTests
     }
 
     [Test]
+    public async Task Junctions_on_a_track_whose_answer_is_withheld_have_their_names_withheld()
+    {
+        Decider.Use(new ScriptedDecider().Choose(CustomsTier.Red, 0.99));
+
+        var (metadataId, _) = await Run<ICustomsThenStampTrain>();
+
+        var junctions = Handler
+            .For(metadataId)
+            .Select(e => e.Junction!)
+            .Where(j => j.Kind == JunctionRunKind.Junction)
+            .ToList();
+        var route = Handler.For(metadataId).Single(e => e.EventType == "Routed").Junction!.Position;
+
+        junctions
+            .Where(j => j.Position < route)
+            .Should()
+            .OnlyContain(j => j.Name == nameof(Weigh) && j.TrackPosition == null);
+        junctions
+            .Where(j => j.Position > route)
+            .Should()
+            .HaveCount(4)
+            .And.OnlyContain(
+                j =>
+                    j.NameWithheld
+                    && j.Name == JunctionEventPayload.WithheldName
+                    && j.TrackPosition == route,
+                $"which junctions ran would give a withheld answer away. See {Adr}."
+            );
+        (await Rows(metadataId))
+            .Where(r => r.Position > route)
+            .Should()
+            .OnlyContain(r =>
+                r.NameWithheld
+                && r.Name == JunctionEventPayload.WithheldName
+                && r.TrackPosition == route
+            );
+    }
+
+    [Test]
+    public async Task Junctions_on_any_decision_track_carry_its_position_and_keep_their_names()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Lane.Express, 0.9));
+
+        var (metadataId, _) = await Run<ILaneTrain>();
+
+        var steps = Handler.For(metadataId).Select(e => e.Junction!).ToList();
+        steps
+            .Where(j => j.Name == nameof(Weigh))
+            .Should()
+            .OnlyContain(j => j.TrackPosition == null);
+        steps
+            .Where(j => j.Name is nameof(Load) or nameof(Stamp))
+            .Should()
+            .HaveCount(4)
+            .And.OnlyContain(j => j.TrackPosition == 2 && !j.NameWithheld);
+    }
+
+    [Test]
     public async Task Junction_events_are_off_unless_the_host_asks_for_them()
     {
         var handler = new CapturingHandler();
@@ -774,7 +832,8 @@ internal static class JunctionEventTrains
             .AddScopedTraxRoute<ILaneThenFailTrain, LaneThenFailTrain>()
             .AddScopedTraxRoute<ICustomsTrain, CustomsTrain>()
             .AddScopedTraxRoute<IHeldTrain, HeldTrain>()
-            .AddScopedTraxRoute<IAuditTrain, AuditTrain>();
+            .AddScopedTraxRoute<IAuditTrain, AuditTrain>()
+            .AddScopedTraxRoute<ICustomsThenStampTrain, CustomsThenStampTrain>();
 }
 
 /// <summary>Records every junction event it is handed.</summary>
@@ -1032,4 +1091,19 @@ public class AuditTrain : ServiceTrain<Parcel, string>, IAuditTrain
 {
     protected override Task<Either<Exception, string>> Junctions() =>
         Gate<Parcel, Audit>(g => g.Yes(y => y.Chain<Load>()).No(n => n.Chain<Load>())).Resolve();
+}
+
+public interface ICustomsThenStampTrain : IServiceTrain<Parcel, string>;
+
+public class CustomsThenStampTrain : ServiceTrain<Parcel, string>, ICustomsThenStampTrain
+{
+    protected override Task<Either<Exception, string>> Junctions() =>
+        Chain<Weigh>()
+            .Switch<Parcel, CustomsTier>(tracks =>
+                tracks
+                    .When(CustomsTier.Green, t => t.Chain<Load>())
+                    .When(CustomsTier.Red, t => t.Chain<Load>())
+            )
+            .Chain<Stamp>()
+            .Resolve();
 }

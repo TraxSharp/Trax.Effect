@@ -16,6 +16,9 @@ internal static class DefaultTraxJunctionClientEventProjection
         var step = message.Junction!;
         var withheld = !answers || step.AnswerWithheld;
 
+        // A junction on a decision's track names the track, so it is shown only where answers are.
+        var nameWithheld = step.NameWithheld || (!answers && step.TrackPosition is not null);
+
         return new(
             MetadataId: message.MetadataId,
             ExternalId: message.ExternalId,
@@ -24,7 +27,7 @@ internal static class DefaultTraxJunctionClientEventProjection
             Timestamp: message.Timestamp,
             Position: step.Position,
             Kind: step.Kind.ToString(),
-            Name: step.Name,
+            Name: nameWithheld ? JunctionEventPayload.WithheldName : step.Name,
             State: step.State.ToString(),
             StartedAt: step.StartedAt,
             EndedAt: step.EndedAt,
@@ -35,7 +38,9 @@ internal static class DefaultTraxJunctionClientEventProjection
             Answer: withheld ? null : step.Answer,
             Confidence: withheld ? null : step.Confidence,
             Replayed: step.Replayed,
-            AnswerWithheld: step.AnswerWithheld
+            AnswerWithheld: step.AnswerWithheld,
+            NameWithheld: nameWithheld,
+            TrackPosition: step.TrackPosition
         );
     }
 }

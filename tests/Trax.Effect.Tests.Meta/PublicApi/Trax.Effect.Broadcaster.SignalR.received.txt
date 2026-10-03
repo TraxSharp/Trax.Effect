@@ -86,7 +86,9 @@ namespace Trax.Effect.Broadcaster.SignalR.Models
                     string? Answer,
                     double? Confidence,
                     bool Replayed,
-                    bool AnswerWithheld) { }
+                    bool AnswerWithheld,
+                    bool NameWithheld,
+                    int? TrackPosition) { }
         [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
         [System.Text.Json.Serialization.JsonPropertyName("answer")]
         public string? Answer { get; init; }
@@ -117,6 +119,8 @@ namespace Trax.Effect.Broadcaster.SignalR.Models
         public long MetadataId { get; init; }
         [System.Text.Json.Serialization.JsonPropertyName("name")]
         public string Name { get; init; }
+        [System.Text.Json.Serialization.JsonPropertyName("nameWithheld")]
+        public bool NameWithheld { get; init; }
         [System.Text.Json.Serialization.JsonPropertyName("position")]
         public int Position { get; init; }
         [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
@@ -130,6 +134,9 @@ namespace Trax.Effect.Broadcaster.SignalR.Models
         public string State { get; init; }
         [System.Text.Json.Serialization.JsonPropertyName("timestamp")]
         public System.DateTime Timestamp { get; init; }
+        [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        [System.Text.Json.Serialization.JsonPropertyName("trackPosition")]
+        public int? TrackPosition { get; init; }
         [System.Text.Json.Serialization.JsonPropertyName("trainName")]
         public string TrainName { get; init; }
     }

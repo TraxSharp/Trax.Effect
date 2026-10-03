@@ -12,7 +12,9 @@ namespace Trax.Effect.Broadcaster.SignalR.Models;
 /// and exception type, and for a question its key. The answer and the confidence are left null unless
 /// the sink was configured with <c>WithJunctionAnswers()</c>, and stay null for a question whose
 /// answer is withheld. Never an input, an output, a failure's message or anything a decider was
-/// shown. A null is left off the wire. Field
+/// shown. A junction that runs on a decision's track (<c>trackPosition</c> set) has its name
+/// withheld too unless the sink sends answers, and always when its track's answer is withheld,
+/// because which junctions ran would give the answer away. A null is left off the wire. Field
 /// meanings are those of <c>JunctionEventPayload</c>.
 /// </remarks>
 public record TraxJunctionClientEvent(
@@ -48,5 +50,9 @@ public record TraxJunctionClientEvent(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         double? Confidence,
     [property: JsonPropertyName("replayed")] bool Replayed,
-    [property: JsonPropertyName("answerWithheld")] bool AnswerWithheld
+    [property: JsonPropertyName("answerWithheld")] bool AnswerWithheld,
+    [property: JsonPropertyName("nameWithheld")] bool NameWithheld,
+    [property: JsonPropertyName("trackPosition")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        int? TrackPosition
 );

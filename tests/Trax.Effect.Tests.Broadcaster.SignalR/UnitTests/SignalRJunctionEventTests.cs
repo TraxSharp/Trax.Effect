@@ -291,6 +291,40 @@ public class SignalRJunctionEventTests
             .Be(2, $"a run's steps are given up before another run's outcome. See {Adr}.");
     }
 
+    private static TrainLifecycleEventMessage OnTrack(bool nameWithheld = false)
+    {
+        var message = Step(eventType: "JunctionStarted");
+        return message with
+        {
+            Junction = message.Junction! with { TrackPosition = 1, NameWithheld = nameWithheld },
+        };
+    }
+
+    [TestCase(false, false, "(withheld)")]
+    [TestCase(true, false, "Ship")]
+    [TestCase(true, true, "(withheld)")]
+    public async Task A_junction_on_a_decision_track_is_named_only_where_answers_are_sent(
+        bool answers,
+        bool nameWithheld,
+        string name
+    )
+    {
+        var options = answers
+            ? NewOptions().WithJunctionAnswers()
+            : NewOptions().WithJunctionEvents();
+        var d = Create(options.Build());
+        object? sent = null;
+        await _client.JunctionEvent(Arg.Do<object>(p => sent = p));
+
+        await d.HandleAsync(OnTrack(nameWithheld), CancellationToken.None);
+        await d.StopAsync(CancellationToken.None);
+
+        var step = sent.Should().BeOfType<TraxJunctionClientEvent>().Subject;
+        step.Name.Should().Be(name, $"a junction on a track gives its answer away. See {Adr}.");
+        step.NameWithheld.Should().Be(name == "(withheld)");
+        step.TrackPosition.Should().Be(1);
+    }
+
     [Test]
     public void Only_a_sink_that_asked_registers_as_a_junction_event_handler()
     {

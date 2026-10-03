@@ -18,12 +18,14 @@ internal static class JunctionSteps
 
         await run.Publish(
             TrainLifecycleEventMessage.JunctionStartedEventType,
-            new JunctionEventPayload(
-                position,
-                JunctionRunKind.Junction,
-                name,
-                JunctionRunState.InProgress,
-                startedAt
+            run.OnTrack(
+                new JunctionEventPayload(
+                    position,
+                    JunctionRunKind.Junction,
+                    name,
+                    JunctionRunState.InProgress,
+                    startedAt
+                )
             )
         );
 
@@ -52,14 +54,16 @@ internal static class JunctionSteps
         if (failure is null)
             return run.Publish(
                 TrainLifecycleEventMessage.JunctionCompletedEventType,
-                new JunctionEventPayload(
-                    position,
-                    JunctionRunKind.Junction,
-                    name,
-                    JunctionRunState.Completed,
-                    startedAt,
-                    endedAt,
-                    duration
+                run.OnTrack(
+                    new JunctionEventPayload(
+                        position,
+                        JunctionRunKind.Junction,
+                        name,
+                        JunctionRunState.Completed,
+                        startedAt,
+                        endedAt,
+                        duration
+                    )
                 )
             );
 
@@ -68,30 +72,34 @@ internal static class JunctionSteps
         if (requestedCancellation)
             return run.Publish(
                 TrainLifecycleEventMessage.JunctionCancelledEventType,
-                new JunctionEventPayload(
-                    position,
-                    JunctionRunKind.Junction,
-                    name,
-                    JunctionRunState.Cancelled,
-                    startedAt,
-                    endedAt,
-                    duration,
-                    FailureException: type
+                run.OnTrack(
+                    new JunctionEventPayload(
+                        position,
+                        JunctionRunKind.Junction,
+                        name,
+                        JunctionRunState.Cancelled,
+                        startedAt,
+                        endedAt,
+                        duration,
+                        FailureException: type
+                    )
                 )
             );
 
         return run.Publish(
             TrainLifecycleEventMessage.JunctionFailedEventType,
-            new JunctionEventPayload(
-                position,
-                JunctionRunKind.Junction,
-                name,
-                JunctionRunState.Failed,
-                startedAt,
-                endedAt,
-                duration,
-                FailureClass: Classify(failure, services, logger),
-                FailureException: type
+            run.OnTrack(
+                new JunctionEventPayload(
+                    position,
+                    JunctionRunKind.Junction,
+                    name,
+                    JunctionRunState.Failed,
+                    startedAt,
+                    endedAt,
+                    duration,
+                    FailureClass: Classify(failure, services, logger),
+                    FailureException: type
+                )
             )
         );
     }

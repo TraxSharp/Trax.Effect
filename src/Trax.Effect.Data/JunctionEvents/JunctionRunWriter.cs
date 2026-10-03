@@ -265,6 +265,8 @@ internal sealed class JunctionRunWriter
         row.Replayed = step.Replayed;
         row.AnswerWithheld = step.AnswerWithheld;
         row.Attempt = step.Attempt;
+        row.NameWithheld = step.NameWithheld;
+        row.TrackPosition = step.TrackPosition;
     }
 
     /// <inheritdoc />

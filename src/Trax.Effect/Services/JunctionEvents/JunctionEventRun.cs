@@ -74,6 +74,36 @@ internal sealed class JunctionEventRun
     /// <summary>The run's scope, which local junction event handlers are resolved from.</summary>
     public IServiceProvider Services { get; }
 
+    /// <summary>
+    /// The position of the latest routing step the run took, or null before any. Every junction
+    /// after it is counted as on its track, because Trax.Core does not report where tracks rejoin.
+    /// </summary>
+    public int? TrackPosition { get; private set; }
+
+    /// <summary>
+    /// True once the run has taken a track whose answer is withheld. From then on its junctions'
+    /// names are withheld too, since they would give the track away. It is never cleared, for the
+    /// same reason <see cref="TrackPosition"/> never ends.
+    /// </summary>
+    public bool WithholdsNames { get; private set; }
+
+    /// <summary>Records that the run took the track a routing step at <paramref name="position"/> chose.</summary>
+    public void Routed(int position, bool withheld)
+    {
+        TrackPosition = position;
+        if (withheld)
+            WithholdsNames = true;
+    }
+
+    /// <summary>A junction's step as the run's tracks so far require it to be published.</summary>
+    public JunctionEventPayload OnTrack(JunctionEventPayload step) =>
+        step with
+        {
+            Name = WithholdsNames ? JunctionEventPayload.WithheldName : step.Name,
+            NameWithheld = WithholdsNames,
+            TrackPosition = TrackPosition,
+        };
+
     /// <summary>The next position in the run's timeline.</summary>
     public int NextPosition() => Interlocked.Increment(ref _position);
 

@@ -110,8 +110,15 @@ and reports nothing. A junction skipped because an earlier one failed is not a s
 naming the step that asked, so a step is a `Choice` (Decide, Switch), `Score` (Scale) or `YesNo`
 (Gate), and each track taken adds a `Route`.
 
-**Withholding an answer does not hide the path.** The junctions a track runs are named in their own
-steps. A host whose track choice is itself secret should not turn junction events on.
+**Withholding an answer withholds the path.** The junctions a track runs would name the track, so
+every junction after a route whose answer is withheld is published and stored as `(withheld)`, with
+`NameWithheld` set. Every junction after any route carries `TrackPosition`, the route's position, so
+a consumer that does not show a subscriber answers does not show it those names either; the SignalR
+sink withholds them unless it sends answers. Trax.Core reports where a track starts but not where
+it rejoins the chain, so a junction after the rejoin is counted as on the track too: this fails
+closed and hides some names that could have been shown. What stays visible is how many steps ran and
+how long each took, which can still differ by track; that is accepted, and a host for which even
+that is too much does not turn junction events on.
 
 **Decision observers compose.** Trax.Core finds one `IDecisionObserver` in the container. Trax now
 registers a composite that tells every observer registered before `AddTrax` and every one Trax adds
@@ -154,6 +161,7 @@ tests check the fields that exist against known secrets, not the shape of every 
 
 ## Changelog
 
+- **2026-10-02**: Junctions after a route carry its position, and after a withheld route their names are withheld.
 - **2026-10-02**: The junction exchange is declared only where steps are used, on channels of its own, and each exchange carries only its own kind of event.
 - **2026-10-02**: A run with no row has no steps; sensitivity is decided by the question's type; the journal's log withholds sensitive answers.
 - **2026-10-02**: The attempt query is indexed, reads a bounded number of runs, and is timed out.

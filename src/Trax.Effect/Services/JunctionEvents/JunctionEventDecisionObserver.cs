@@ -94,11 +94,17 @@ internal sealed class JunctionEventDecisionObserver : IDecisionObserver
         var withheld = SensitiveQuestions.IsSensitive(routing.On);
         var now = DateTime.UtcNow;
 
+        var position = run.NextPosition();
+
+        // Junctions from here on are on this track; when its answer is withheld, so are their
+        // names, which would give the track away.
+        run.Routed(position, withheld);
+
         // The track taken gives the answer away, so it is withheld with it.
         await run.Publish(
             TrainLifecycleEventMessage.RoutedEventType,
             new JunctionEventPayload(
-                run.NextPosition(),
+                position,
                 JunctionRunKind.Route,
                 key,
                 JunctionRunState.Completed,

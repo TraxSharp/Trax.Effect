@@ -21,7 +21,7 @@ namespace Trax.Effect.Models.JunctionRun;
 /// marked <c>[TraxSensitive]</c> is not stored at all (<see cref="AnswerWithheld"/>).</para>
 ///
 /// EF Core mapping lives in <c>Trax.Effect.Data.Models.JunctionRun.PersistentJunctionRun</c>; the
-/// table ships in the core migration set (Postgres <c>055</c> and <c>057</c>, Sqlite <c>020</c> and <c>022</c>) and is deleted
+/// table ships in the core migration set (Postgres <c>055</c>, <c>057</c> and <c>060</c>, Sqlite <c>020</c>, <c>022</c> and <c>025</c>) and is deleted
 /// with its run.
 /// </remarks>
 public class JunctionRun
@@ -112,6 +112,22 @@ public class JunctionRun
     /// </summary>
     [Column("attempt")]
     public int? Attempt { get; set; }
+
+    /// <summary>
+    /// True for a junction that ran after a routing step whose answer is withheld: its
+    /// <see cref="Name"/> is <c>(withheld)</c>, because which junctions ran would give the answer
+    /// away.
+    /// </summary>
+    [Column("name_withheld")]
+    public bool NameWithheld { get; set; }
+
+    /// <summary>
+    /// For a junction, the <see cref="Position"/> of the latest routing step the run took before it,
+    /// or null before any. Every junction after a route is counted as on its track, because where
+    /// tracks rejoin is not reported.
+    /// </summary>
+    [Column("track_position")]
+    public int? TrackPosition { get; set; }
 
     /// <summary>
     /// True when the question is about a type marked <c>[TraxSensitive]</c>, so its answer,

@@ -509,6 +509,8 @@ namespace Trax.Effect.Models.JunctionRun
         public long MetadataId { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("name")]
         public string Name { get; set; }
+        [System.ComponentModel.DataAnnotations.Schema.Column("name_withheld")]
+        public bool NameWithheld { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("position")]
         public int Position { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("question_key")]
@@ -519,6 +521,8 @@ namespace Trax.Effect.Models.JunctionRun
         public System.DateTime StartedAt { get; set; }
         [System.ComponentModel.DataAnnotations.Schema.Column("state")]
         public Trax.Effect.Enums.JunctionRunState State { get; set; }
+        [System.ComponentModel.DataAnnotations.Schema.Column("track_position")]
+        public int? TrackPosition { get; set; }
     }
 }
 namespace Trax.Effect.Models.Log.DTOs
@@ -1343,6 +1347,7 @@ namespace Trax.Effect.Services.TrainEventBroadcaster
     }
     public sealed class JunctionEventPayload : System.IEquatable<Trax.Effect.Services.TrainEventBroadcaster.JunctionEventPayload>
     {
+        public const string WithheldName = "(withheld)";
         public JunctionEventPayload(
                     int Position,
                     Trax.Effect.Enums.JunctionRunKind Kind,
@@ -1359,7 +1364,9 @@ namespace Trax.Effect.Services.TrainEventBroadcaster
                     bool Replayed = false,
                     string? Decider = null,
                     bool AnswerWithheld = false,
-                    int? Attempt = default) { }
+                    int? Attempt = default,
+                    bool NameWithheld = false,
+                    int? TrackPosition = default) { }
         [System.Text.Json.Serialization.JsonPropertyName("answer")]
         public string? Answer { get; init; }
         [System.Text.Json.Serialization.JsonPropertyName("answerWithheld")]
@@ -1384,6 +1391,8 @@ namespace Trax.Effect.Services.TrainEventBroadcaster
         public Trax.Effect.Enums.JunctionRunKind Kind { get; init; }
         [System.Text.Json.Serialization.JsonPropertyName("name")]
         public string Name { get; init; }
+        [System.Text.Json.Serialization.JsonPropertyName("nameWithheld")]
+        public bool NameWithheld { get; init; }
         [System.Text.Json.Serialization.JsonPropertyName("position")]
         public int Position { get; init; }
         [System.Text.Json.Serialization.JsonPropertyName("questionKey")]
@@ -1395,6 +1404,8 @@ namespace Trax.Effect.Services.TrainEventBroadcaster
         [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<Trax.Effect.Enums.JunctionRunState>?))]
         [System.Text.Json.Serialization.JsonPropertyName("state")]
         public Trax.Effect.Enums.JunctionRunState State { get; init; }
+        [System.Text.Json.Serialization.JsonPropertyName("trackPosition")]
+        public int? TrackPosition { get; init; }
     }
     public class TrainEventReceiverService : Microsoft.Extensions.Hosting.BackgroundService
     {

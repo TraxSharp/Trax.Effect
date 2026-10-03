@@ -54,6 +54,17 @@ namespace Trax.Effect.Services.TrainEventBroadcaster;
 /// True when the question is about a type marked <c>[TraxSensitive]</c>, so its answer, confidence
 /// and track are left out.
 /// </param>
+/// <param name="NameWithheld">
+/// True for a junction that runs after a routing step whose answer is withheld (a question about a
+/// type marked <c>[TraxSensitive]</c>): its <paramref name="Name"/> is <see cref="WithheldName"/>,
+/// because which junctions ran would give the track, and so the answer, away.
+/// </param>
+/// <param name="TrackPosition">
+/// For a junction, the <paramref name="Position"/> of the latest routing step (a <c>Route</c>) the run
+/// took before it, or null when no routing step has run yet. Trax.Core reports where a track
+/// starts but not where it rejoins the chain, so every junction after a route is counted as on its
+/// track. A subscriber that is not shown answers should not be shown these junctions' names either.
+/// </param>
 /// <param name="Attempt">
 /// Which attempt of its manifest the run is: 1 plus the number of the manifest's failed runs since
 /// its last completed or cancelled run (a dispatch attempt the scheduler requeued does not count),
@@ -82,5 +93,11 @@ public sealed record JunctionEventPayload(
     [property: JsonPropertyName("replayed")] bool Replayed = false,
     [property: JsonPropertyName("decider")] string? Decider = null,
     [property: JsonPropertyName("answerWithheld")] bool AnswerWithheld = false,
-    [property: JsonPropertyName("attempt")] int? Attempt = null
-);
+    [property: JsonPropertyName("attempt")] int? Attempt = null,
+    [property: JsonPropertyName("nameWithheld")] bool NameWithheld = false,
+    [property: JsonPropertyName("trackPosition")] int? TrackPosition = null
+)
+{
+    /// <summary>The <see cref="Name"/> of a junction whose name is withheld.</summary>
+    public const string WithheldName = "(withheld)";
+}
