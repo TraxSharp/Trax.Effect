@@ -365,6 +365,73 @@ public class RabbitMqBroadcasterSenderTests
     }
 
     [Test]
+    public async Task AJunctionExchangeThatFails_IsNotTriedAgainUntilItsBackoffPasses()
+    {
+        var connection = OpenConnection();
+        var opened = 0;
+        var refusing = OpenChannel();
+        refusing
+            .ExchangeDeclareAsync(
+                Arg.Any<string>(),
+                Arg.Any<string>(),
+                Arg.Any<bool>(),
+                Arg.Any<bool>(),
+                Arg.Any<IDictionary<string, object?>?>(),
+                Arg.Any<bool>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>()
+            )
+            .ThrowsAsync(ClosedByPeer());
+        var trains = OpenChannel();
+        var published = Records(trains);
+        connection
+            .CreateChannelAsync(Arg.Any<CreateChannelOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+                Task.FromResult(Interlocked.Increment(ref opened) == 2 ? trains : refusing)
+            );
+        var now = new DateTime(2026, 10, 2, 0, 0, 0, DateTimeKind.Utc);
+        var broadcaster = Broadcaster(connection, new CapturingLogger());
+        broadcaster.UtcNow = () => now;
+
+        for (var i = 0; i < 5; i++)
+            await broadcaster.PublishAsync(Junction($"j{i}"), CancellationToken.None);
+        await broadcaster.PublishAsync(Message("train"), CancellationToken.None);
+        await published.Reaches(1).WaitAsync(Timeout);
+
+        opened
+            .Should()
+            .Be(2, "one junction attempt, then the train channel; the rest were dropped");
+        broadcaster
+            .JunctionUnavailableUntil.Should()
+            .Be(now + RabbitMqTrainEventBroadcaster.FirstJunctionBackoff);
+
+        // Past the backoff, a junction event is tried again, and a second failure doubles it.
+        now += RabbitMqTrainEventBroadcaster.FirstJunctionBackoff;
+        await broadcaster.PublishAsync(Junction("again"), CancellationToken.None);
+        await broadcaster.PublishAsync(Message("train-2"), CancellationToken.None);
+        await published.Reaches(2).WaitAsync(Timeout);
+
+        opened.Should().Be(3);
+        broadcaster
+            .JunctionUnavailableUntil.Should()
+            .Be(now + RabbitMqTrainEventBroadcaster.FirstJunctionBackoff * 2);
+        published.ExternalIds.Should().Equal("train", "train-2");
+        await broadcaster.DisposeAsync();
+    }
+
+    private static TrainLifecycleEventMessage Junction(string externalId) =>
+        Message(externalId, "JunctionStarted") with
+        {
+            Junction = new JunctionEventPayload(
+                0,
+                Trax.Effect.Enums.JunctionRunKind.Junction,
+                "Ship",
+                Trax.Effect.Enums.JunctionRunState.InProgress,
+                DateTime.UtcNow
+            ),
+        };
+
+    [Test]
     public async Task Sender_DeclaresTheExchangeOnEveryChannelItOpens()
     {
         var connection = OpenConnection();

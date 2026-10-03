@@ -64,6 +64,12 @@ internal class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDis
     private static readonly TimeSpan MaxRetryDelay = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(2);
 
+    /// <summary>How long junction events are dropped after the first failure to send one.</summary>
+    internal static readonly TimeSpan FirstJunctionBackoff = TimeSpan.FromSeconds(1);
+
+    /// <summary>The longest junction events are dropped after a failure before one is tried again.</summary>
+    internal static readonly TimeSpan MaxJunctionBackoff = TimeSpan.FromMinutes(1);
+
     private static readonly CreateChannelOptions ConfirmedChannel = new(
         publisherConfirmationsEnabled: true,
         publisherConfirmationTrackingEnabled: true
@@ -83,6 +89,8 @@ internal class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDis
     private IChannel? _channel;
     private IChannel? _junctionChannel;
     private int _junctionFailing;
+    private TimeSpan _junctionBackoff;
+    private DateTime _junctionUnavailableUntil = DateTime.MinValue;
     private long _dropped;
     private long _droppedSinceReport;
     private long _refused;
@@ -128,6 +136,12 @@ internal class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDis
 
     /// <summary>Events dropped because the broker refused them <see cref="MaxRefusedAttempts"/> times.</summary>
     internal long RefusedEvents => Interlocked.Read(ref _refused);
+
+    /// <summary>The clock the junction backoff is measured on. For tests.</summary>
+    internal Func<DateTime> UtcNow { get; set; } = () => DateTime.UtcNow;
+
+    /// <summary>Until when junction events are dropped without being tried, after a failure.</summary>
+    internal DateTime JunctionUnavailableUntil => _junctionUnavailableUntil;
 
     /// <summary>
     /// Queues <paramref name="message"/> for the background sender and returns without waiting
@@ -283,9 +297,20 @@ internal class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDis
 
     private async Task SendJunctionAsync(TrainLifecycleEventMessage message, CancellationToken ct)
     {
+        // After a failure, junction events are dropped without opening a channel or declaring the
+        // exchange until the backoff passes, so a junction exchange that cannot be used costs the
+        // sender, and the train events behind it, one attempt per backoff rather than one per step.
+        if (UtcNow() < _junctionUnavailableUntil)
+        {
+            _logger?.LogDebug("RabbitMQ broadcaster dropped a junction event while backing off.");
+            return;
+        }
+
         try
         {
             await SendAsync(message, ct);
+            _junctionBackoff = TimeSpan.Zero;
+            _junctionUnavailableUntil = DateTime.MinValue;
             if (Interlocked.Exchange(ref _junctionFailing, 0) == 1)
                 _logger?.LogInformation(
                     "RabbitMQ broadcaster is publishing junction events to {Exchange} again.",
@@ -301,12 +326,19 @@ internal class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDis
             await DisposeQuietlyAsync(_junctionChannel);
             _junctionChannel = null;
 
+            _junctionBackoff =
+                _junctionBackoff == TimeSpan.Zero ? FirstJunctionBackoff
+                : _junctionBackoff * 2 > MaxJunctionBackoff ? MaxJunctionBackoff
+                : _junctionBackoff * 2;
+            _junctionUnavailableUntil = UtcNow() + _junctionBackoff;
+
             // One warning per outage; the steps lost inside it are Debug.
             if (Interlocked.Exchange(ref _junctionFailing, 1) == 0)
                 _logger?.LogWarning(
                     ex,
                     "RabbitMQ broadcaster cannot publish junction events to exchange {Exchange}; "
-                        + "dropping them until it can. Train events are not affected.",
+                        + "dropping them until it can, trying again after a growing pause of up to "
+                        + "a minute. Train events are not affected.",
                     _options.EffectiveJunctionExchangeName
                 );
             else
@@ -422,6 +454,12 @@ internal class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDis
         {
             await DisposeQuietlyAsync(_junctionChannel);
             _junctionChannel = null;
+
+            _junctionBackoff =
+                _junctionBackoff == TimeSpan.Zero ? FirstJunctionBackoff
+                : _junctionBackoff * 2 > MaxJunctionBackoff ? MaxJunctionBackoff
+                : _junctionBackoff * 2;
+            _junctionUnavailableUntil = UtcNow() + _junctionBackoff;
             await DisposeQuietlyAsync(_connection);
             _connection = null;
         }
