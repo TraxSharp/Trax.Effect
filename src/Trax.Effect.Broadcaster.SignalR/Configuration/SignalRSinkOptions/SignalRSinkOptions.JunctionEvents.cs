@@ -1,4 +1,3 @@
-using Trax.Effect.Broadcaster.SignalR.Services;
 using Trax.Effect.Services.TrainEventBroadcaster;
 
 namespace Trax.Effect.Broadcaster.SignalR.Configuration.SignalRSinkOptions;
@@ -35,14 +34,14 @@ public partial class SignalRSinkOptions
     /// <remarks>
     /// Every client connected to the hub receives every train's events, so this puts every
     /// decision's answer in front of all of them. Answers to questions about a type marked
-    /// <c>[TraxSensitive]</c> stay withheld. Replaced by <see cref="WithJunctionProjection{TClient}"/>
-    /// when both are called.
+    /// <c>[TraxSensitive]</c> stay withheld. Has no effect when
+    /// <see cref="WithJunctionProjection{TClient}"/> is called too, before or after it: a host's own
+    /// projection always shapes the payload.
     /// </remarks>
     public SignalRSinkOptions WithJunctionAnswers()
     {
         _junctionEvents = true;
-        _junctionProjection = message =>
-            DefaultTraxJunctionClientEventProjection.Project(message, answers: true);
+        _junctionAnswers = true;
         return this;
     }
 
@@ -51,6 +50,10 @@ public partial class SignalRSinkOptions
     /// <paramref name="projection"/> instead of the default <c>TraxJunctionClientEvent</c>. The
     /// message's <see cref="TrainLifecycleEventMessage.Junction"/> is never null here.
     /// </summary>
+    /// <remarks>
+    /// It takes precedence over <see cref="WithJunctionAnswers"/> whichever is called first, so a
+    /// projection that leaves fields out is never swapped for the default payload.
+    /// </remarks>
     /// <typeparam name="TClient">The shape sent to SignalR clients. Must be JSON-serializable.</typeparam>
     public SignalRSinkOptions WithJunctionProjection<TClient>(
         Func<TrainLifecycleEventMessage, TClient> projection

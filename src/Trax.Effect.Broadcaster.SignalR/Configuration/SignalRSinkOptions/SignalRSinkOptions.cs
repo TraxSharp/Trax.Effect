@@ -18,6 +18,7 @@ public partial class SignalRSinkOptions
         DefaultTraxClientEventProjection.Project;
     private int _deliveryQueueCapacity = DefaultDeliveryQueueCapacity;
     private bool _junctionEvents;
+    private bool _junctionAnswers;
     private Func<TrainLifecycleEventMessage, object>? _junctionProjection;
 
     /// <summary>

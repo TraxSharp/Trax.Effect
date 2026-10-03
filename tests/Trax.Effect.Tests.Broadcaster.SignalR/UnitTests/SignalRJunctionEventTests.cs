@@ -358,6 +358,36 @@ public class SignalRJunctionEventTests
     }
 
     [Test]
+    public async Task A_host_projection_shapes_junction_events_whichever_is_called_last()
+    {
+        foreach (
+            var options in new[]
+            {
+                NewOptions()
+                    .WithJunctionProjection(m => new RedactedStep(m.MetadataId, "redacted"))
+                    .WithJunctionAnswers(),
+                NewOptions()
+                    .WithJunctionAnswers()
+                    .WithJunctionProjection(m => new RedactedStep(m.MetadataId, "redacted")),
+            }
+        )
+        {
+            var d = Create(options.Build());
+            object? sent = null;
+            await _client.JunctionEvent(Arg.Do<object>(p => sent = p));
+
+            await d.HandleAsync(Decided(), CancellationToken.None);
+            await d.StopAsync(CancellationToken.None);
+
+            sent.Should()
+                .Be(
+                    new RedactedStep(9, "redacted"),
+                    $"a host's projection is never swapped for the default one. See {Adr}."
+                );
+        }
+    }
+
+    [Test]
     public void Only_a_sink_that_asked_registers_as_a_junction_event_handler()
     {
         using var off = Provider(o => { });
