@@ -352,6 +352,30 @@ public class DecisionRecordingTests
     }
 
     [Test]
+    public async Task A_journal_the_host_registers_itself_replays_for_the_configured_bound()
+    {
+        await using var provider = DecisionTrains
+            .Register(new ServiceCollection(), Decider)
+            .AddSingleton<DecisionJournal>()
+            .AddTrax(trax =>
+                trax.AddEffects(effects =>
+                    effects
+                        .UseInMemory()
+                        .AddDecisionRecording(o => o.ReplayAnswersFor(TimeSpan.FromMinutes(5)))
+                )
+            )
+            .BuildServiceProvider();
+
+        provider
+            .GetRequiredService<DecisionJournal>()
+            .Options.MaxReplayAge.Should()
+            .Be(
+                TimeSpan.FromMinutes(5),
+                $"the bound applies however the journal is built. See {Adr}."
+            );
+    }
+
+    [Test]
     public async Task An_observer_that_cannot_be_built_refuses_with_a_clear_reason()
     {
         var services = DecisionTrains.Register(new ServiceCollection(), Decider);

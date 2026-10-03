@@ -3,7 +3,7 @@ namespace Trax.Effect.Data.Decisions
     public sealed class DecisionJournal : Trax.Core.Decisions.IDecisionObserver, Trax.Core.Decisions.IDecisionReplay
     {
         public const int MaxReplayChain = 32;
-        public DecisionJournal(Trax.Effect.Data.Services.IDataContextFactory.IDataContextProviderFactory contextFactory, Microsoft.Extensions.Logging.ILogger<Trax.Effect.Data.Decisions.DecisionJournal>? logger = null) { }
+        public DecisionJournal(Trax.Effect.Data.Services.IDataContextFactory.IDataContextProviderFactory contextFactory, Microsoft.Extensions.Logging.ILogger<Trax.Effect.Data.Decisions.DecisionJournal>? logger = null, Trax.Effect.Data.Decisions.DecisionRecordingOptions? options = null) { }
         public bool Required { get; }
         public System.Threading.Tasks.Task Decided(Trax.Core.Decisions.DecisionMade decision, System.Threading.CancellationToken cancellationToken) { }
         public System.Threading.Tasks.Task Refused(Trax.Core.Decisions.DecisionRefused refusal, System.Threading.CancellationToken cancellationToken) { }

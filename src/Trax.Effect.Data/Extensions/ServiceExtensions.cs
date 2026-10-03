@@ -149,13 +149,9 @@ public static class ServiceExtensions
             services.AddSingleton(options);
         configure(options);
 
-        services.TryAddSingleton(sp => new DecisionJournal(
-            sp.GetRequiredService<Services.IDataContextFactory.IDataContextProviderFactory>(),
-            sp.GetService<ILogger<DecisionJournal>>()
-        )
-        {
-            Options = sp.GetRequiredService<DecisionRecordingOptions>(),
-        });
+        // Built by the container, so a journal the host registers itself is handed the same
+        // options as this one.
+        services.TryAddSingleton<DecisionJournal>();
         // Beside any other observer (a host's own, junction events), never in place of one.
         DecisionObservers.Add(
             services,

@@ -45,13 +45,20 @@ namespace Trax.Effect.Data.Decisions;
 /// before. A plain train run inside a junction never begins a run, so its decisions are never
 /// looked up this way.</para>
 /// </remarks>
+/// <param name="contextFactory">Creates the short-lived data contexts the journal reads and writes through.</param>
+/// <param name="logger">Optional; without one, decisions are recorded but not logged.</param>
+/// <param name="options">
+/// How decisions are recorded and replayed: the options <c>AddDecisionRecording</c> registers, which
+/// the container passes however the journal is registered. The defaults when none is given.
+/// </param>
 public sealed class DecisionJournal(
     IDataContextProviderFactory contextFactory,
-    ILogger<DecisionJournal>? logger = null
+    ILogger<DecisionJournal>? logger = null,
+    DecisionRecordingOptions? options = null
 ) : IDecisionObserver, IDecisionReplay, IDecisionRunRecorder
 {
-    /// <summary>How long a recorded answer is replayed for; set by <c>AddDecisionRecording</c>.</summary>
-    internal DecisionRecordingOptions Options { get; init; } = new();
+    /// <summary>How decisions are recorded and replayed, as <c>AddDecisionRecording</c> configured them.</summary>
+    internal DecisionRecordingOptions Options { get; } = options ?? new();
 
     // Optional, so a host that registers no logging still records decisions instead of failing
     // every run that makes one.
