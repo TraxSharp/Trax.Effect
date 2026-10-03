@@ -416,6 +416,52 @@ public class JunctionEventsTests
     }
 
     [Test]
+    public async Task The_decision_log_withholds_why_a_sensitive_answer_was_not_replayed()
+    {
+        var logger = new CapturingJournalLogger();
+        await using var provider = JunctionEventTrains
+            .Register(new ServiceCollection(), Decider)
+            .AddSingleton<ILogger<DecisionJournal>>(logger)
+            .AddTrax(trax =>
+                trax.AddEffects(effects => effects.UseInMemory().AddDecisionRecording())
+            )
+            .BuildServiceProvider();
+        var journal = provider.GetRequiredService<DecisionJournal>();
+
+        // Outside a run, so it is logged only.
+        await journal.Decided(
+            new DecisionMade(
+                "Some.Train",
+                "run-1",
+                new ChoiceQuestion(
+                    "CustomsTier",
+                    "Which tier?",
+                    [new Criterion("Green", null), new Criterion("Red", null)]
+                ),
+                0,
+                "fp",
+                new ChoiceAnswer("Green", 0.9),
+                typeof(SwitchableDecider),
+                false,
+                [],
+                ReplayRefused: "the recorded answer 'Red' was given about a different state"
+            )
+            {
+                QuestionType = typeof(CustomsTier),
+            },
+            CancellationToken.None
+        );
+
+        logger.Messages.Should().ContainSingle().Which.Should().Contain("not replayed: (withheld");
+        logger
+            .Messages.Should()
+            .NotContain(
+                m => m.Contains("Red"),
+                $"why a sensitive answer was not replayed can quote it. See {Adr}."
+            );
+    }
+
+    [Test]
     public async Task Junctions_on_a_track_whose_answer_is_withheld_have_their_names_withheld()
     {
         Decider.Use(new ScriptedDecider().Choose(CustomsTier.Red, 0.99));

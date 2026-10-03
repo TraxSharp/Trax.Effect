@@ -77,20 +77,27 @@ public sealed class DecisionJournal(
     /// <inheritdoc />
     public async Task Decided(DecisionMade decision, CancellationToken cancellationToken)
     {
+        var sensitive = SensitiveQuestions.IsSensitive(
+            decision.QuestionType,
+            decision.Question.Key
+        );
         _logger.LogInformation(
             "Train {Train} (run {RunId}) decided {Question}: {Answer} by {Decider}{Replayed}{Shadows}{Refused}",
             decision.Train,
             decision.RunId,
             decision.Question.Key,
-            SensitiveQuestions.IsSensitive(decision.QuestionType, decision.Question.Key)
-                ? Withheld
-                : Describe(decision.Answer),
+            sensitive ? Withheld : Describe(decision.Answer),
             decision.Decider?.Name ?? "replay",
             decision.Replayed ? " (replayed)" : "",
             decision.Shadows.Count == 0
                 ? ""
                 : $"; shadows agreeing: {decision.Shadows.Count(s => s.Agrees)}/{decision.Shadows.Count}",
-            decision.ReplayRefused is null ? "" : $"; not replayed: {decision.ReplayRefused}"
+                // Why a recorded answer was not replayed can describe that answer.
+                decision.ReplayRefused
+                    is null
+                    ? ""
+                : sensitive ? $"; not replayed: {Withheld}"
+                : $"; not replayed: {decision.ReplayRefused}"
         );
 
         if (
