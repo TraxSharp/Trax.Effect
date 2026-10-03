@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Text.Json;
-using FluentAssertions;
+using AwesomeAssertions;
 using LanguageExt;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;

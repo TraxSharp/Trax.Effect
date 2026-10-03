@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
-using FluentAssertions;
+using AwesomeAssertions;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;

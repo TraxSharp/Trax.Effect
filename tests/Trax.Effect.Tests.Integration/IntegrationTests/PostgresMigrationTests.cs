@@ -1,6 +1,6 @@
+using AwesomeAssertions;
 using DbUp;
 using DbUp.Postgresql;
-using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Npgsql;
 using Trax.Effect.Data.Postgres.Utils;

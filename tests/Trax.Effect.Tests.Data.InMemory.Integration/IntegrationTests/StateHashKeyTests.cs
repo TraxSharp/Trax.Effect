@@ -1,5 +1,5 @@
 using System.Security.Cryptography;
-using FluentAssertions;
+using AwesomeAssertions;
 using LanguageExt;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;

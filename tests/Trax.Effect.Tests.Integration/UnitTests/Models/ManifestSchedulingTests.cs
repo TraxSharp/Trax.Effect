@@ -1,5 +1,5 @@
 using System.Text.Json.Nodes;
-using FluentAssertions;
+using AwesomeAssertions;
 using LanguageExt;
 using Trax.Effect.Enums;
 using Trax.Effect.Models.Manifest;

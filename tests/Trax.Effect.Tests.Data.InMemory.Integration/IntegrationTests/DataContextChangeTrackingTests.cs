@@ -1,4 +1,4 @@
-using FluentAssertions;
+using AwesomeAssertions;
 using LanguageExt;
 using Microsoft.EntityFrameworkCore;
 using Trax.Effect.Data.InMemory.Services.InMemoryContext;

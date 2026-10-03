@@ -1,4 +1,4 @@
-using FluentAssertions;
+using AwesomeAssertions;
 using NUnit.Framework;
 using Trax.Effect.Models.Manifest;
 using Trax.Effect.Models.Manifest.DTOs;

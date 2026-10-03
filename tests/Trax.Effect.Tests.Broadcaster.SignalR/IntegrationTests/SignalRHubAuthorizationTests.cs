@@ -2,7 +2,7 @@ using System.Net;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using System.Text.Json;
-using FluentAssertions;
+using AwesomeAssertions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;

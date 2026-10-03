@@ -1,5 +1,5 @@
 using System.Reflection;
-using FluentAssertions;
+using AwesomeAssertions;
 using LanguageExt;
 using Trax.Core.Junction;
 using Trax.Effect.JunctionProvider.Progress.Services.JunctionProgressProvider;

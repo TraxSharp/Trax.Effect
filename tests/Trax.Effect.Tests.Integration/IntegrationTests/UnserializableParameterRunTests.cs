@@ -1,6 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using FluentAssertions;
+using AwesomeAssertions;
 using LanguageExt;
 using Microsoft.Extensions.DependencyInjection;
 using Trax.Effect.Data.InMemory.Extensions;

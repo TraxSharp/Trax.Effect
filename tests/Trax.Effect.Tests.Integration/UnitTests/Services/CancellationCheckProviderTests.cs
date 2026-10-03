@@ -1,5 +1,5 @@
 using System.Reflection;
-using FluentAssertions;
+using AwesomeAssertions;
 using LanguageExt;
 using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;

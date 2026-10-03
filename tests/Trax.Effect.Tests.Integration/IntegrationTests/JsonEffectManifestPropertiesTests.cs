@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using FluentAssertions;
+using AwesomeAssertions;
 using LanguageExt;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;

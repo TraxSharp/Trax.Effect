@@ -1,5 +1,5 @@
 using System.Text.Json;
-using FluentAssertions;
+using AwesomeAssertions;
 using Trax.Core.Exceptions;
 using Trax.Effect.Models.JunctionMetadata;
 using Trax.Effect.Models.JunctionMetadata.DTOs;

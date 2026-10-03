@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json.Nodes;
-using FluentAssertions;
+using AwesomeAssertions;
 using Trax.Core.Decisions;
 using Trax.Core.Exceptions;
 using Trax.Core.Train;

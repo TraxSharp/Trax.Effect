@@ -1,4 +1,4 @@
-using FluentAssertions;
+using AwesomeAssertions;
 using LanguageExt;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;

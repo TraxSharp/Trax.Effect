@@ -1,4 +1,4 @@
-using FluentAssertions;
+using AwesomeAssertions;
 using Microsoft.Data.Sqlite;
 using Trax.Effect.Data.Sqlite.Utils;
 
