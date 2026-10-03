@@ -18,9 +18,10 @@ namespace Trax.Effect.Data.JunctionEvents;
 /// restart the count here; the scheduler's failure window and dead letters decide retries, this
 /// only numbers them for a timeline.</para>
 ///
-/// <para>It is one query over the manifest's <see cref="MaxRunsRead"/> most recent runs, read
-/// newest first through <c>ix_metadata_manifest_id_id</c>, so its cost does not grow with the
-/// manifest's history. A streak longer than that is reported as <see cref="MaxRunsRead"/> + 1.</para>
+/// <para>It is two queries through <c>ix_metadata_manifest_id_id</c>: the id of the manifest's
+/// latest completed or cancelled run before this one, then a count of its failed runs between
+/// that one and this one. Neither reads a row's content, and neither sorts the manifest's
+/// history.</para>
 /// </remarks>
 internal sealed class RunAttempts(IDataContextProviderFactory contexts) : IRunAttempts
 {
@@ -29,9 +30,6 @@ internal sealed class RunAttempts(IDataContextProviderFactory contexts) : IRunAt
     /// (<c>DispatchFailure.Requeued</c>, internal there). Keep the two equal.
     /// </summary>
     internal const string RequeuedDispatch = "DispatchRequeued";
-
-    /// <summary>How many of the manifest's most recent runs are read.</summary>
-    internal const int MaxRunsRead = 1000;
 
     /// <inheritdoc />
     public async Task<int?> AttemptOf(Metadata metadata, CancellationToken cancellationToken)
@@ -42,24 +40,27 @@ internal sealed class RunAttempts(IDataContextProviderFactory contexts) : IRunAt
         using var context = await contexts.CreateDbContextAsync(cancellationToken);
 
         var id = metadata.Id;
-        var recent = await context
-            .Metadatas.AsNoTracking()
-            .Where(m => m.ManifestId == manifestId && m.Id < id)
-            .OrderByDescending(m => m.Id)
-            .Take(MaxRunsRead)
-            .Select(m => new { m.TrainState, m.FailureException })
-            .ToListAsync(cancellationToken);
+        var runs = context.Metadatas.AsNoTracking().Where(m => m.ManifestId == manifestId);
 
-        var failed = 0;
+        // Where the streak starts: the latest run before this one that completed or was cancelled.
+        var since =
+            await runs.Where(m =>
+                    m.Id < id
+                    && (
+                        m.TrainState == TrainState.Completed || m.TrainState == TrainState.Cancelled
+                    )
+                )
+                .MaxAsync(m => (long?)m.Id, cancellationToken)
+            ?? 0;
 
-        foreach (var run in recent)
-        {
-            if (run.TrainState is TrainState.Completed or TrainState.Cancelled)
-                break;
-
-            if (run.TrainState == TrainState.Failed && run.FailureException != RequeuedDispatch)
-                failed++;
-        }
+        var failed = await runs.CountAsync(
+            m =>
+                m.Id > since
+                && m.Id < id
+                && m.TrainState == TrainState.Failed
+                && (m.FailureException == null || m.FailureException != RequeuedDispatch),
+            cancellationToken
+        );
 
         return failed + 1;
     }

@@ -894,12 +894,15 @@ public class JunctionEventsTests
     }
 
     [Test]
-    public async Task A_long_failure_streak_is_counted_over_a_bounded_number_of_runs()
+    public async Task A_long_failure_streak_is_counted_in_full()
     {
         Decider.Use(new ScriptedDecider().Choose(Lane.Express, 0.9));
-        var manifestId = await SeedManifestRuns(
-            Enumerable.Repeat(TrainState.Failed, RunAttempts.MaxRunsRead + 5).ToArray()
-        );
+        var manifestId = await SeedManifestRuns([
+            TrainState.Failed,
+            TrainState.Cancelled,
+            .. Enumerable.Repeat(TrainState.Failed, 1500),
+            TrainState.Pending,
+        ]);
 
         var metadataId = await RunForManifest(_provider, manifestId);
 
@@ -907,8 +910,8 @@ public class JunctionEventsTests
             .For(metadataId)
             .Should()
             .OnlyContain(
-                e => e.Junction!.Attempt == RunAttempts.MaxRunsRead + 1,
-                $"the attempt reads at most {RunAttempts.MaxRunsRead} runs. See {Adr}."
+                e => e.Junction!.Attempt == 1501,
+                $"every failed run since the last cancelled one counts. See {Adr}."
             );
     }
 
