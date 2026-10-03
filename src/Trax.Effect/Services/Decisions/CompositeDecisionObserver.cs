@@ -8,8 +8,19 @@ namespace Trax.Effect.Services.Decisions;
 /// One of the decision observers the composite tells, registered under its own key.
 /// </summary>
 /// <param name="Key">The key the observer is registered under.</param>
-/// <param name="Tag">Identifies a Trax registration, so registering it again adds nothing.</param>
-internal sealed record DecisionObserverPart(object Key, Type? Tag);
+/// <param name="Tag">
+/// Identifies a Trax registration, so registering it again adds nothing. Null for an observer the
+/// host registered.
+/// </param>
+/// <param name="Skippable">
+/// True when the observer is known, without building it, to be best effort, so one that cannot be
+/// built is left out with a warning instead of failing every decision. Trax's own observers are
+/// never skippable: decision recording is required, and junction events withhold what a track
+/// would give away only when told of every routing. A host's observer is skippable only when it is
+/// registered by type and that type does not implement <see cref="IDecisionObserver.Required"/>
+/// itself, or as an instance that is not required.
+/// </param>
+internal sealed record DecisionObserverPart(object Key, Type? Tag, bool Skippable = false);
 
 /// <summary>
 /// The <see cref="IDecisionObserver"/> Trax.Core finds in the container when Trax registers one of
@@ -24,9 +35,14 @@ internal sealed record DecisionObserverPart(object Key, Type? Tag);
 /// best-effort observers are told, each failure logged and swallowed.</para>
 ///
 /// <para>An observer registered before Trax's own is folded in when Trax's is added. One registered
-/// after it, as <see cref="IDecisionObserver"/>, is what the container returns instead, so while a
-/// required observer is a part, <see cref="DecisionObserverCheck"/> refuses the host's start and every
-/// run that records its decisions; register it before <c>AddTrax</c> to have both.</para>
+/// after it, as <see cref="IDecisionObserver"/>, is what the container returns instead, so
+/// <see cref="DecisionObserverCheck"/> refuses the host's start and every run on it: decision
+/// recording would not record, and junction events would not withhold what a track gives away.
+/// Register it before <c>AddTrax</c> to have both.</para>
+///
+/// <para>Each observer is built on its own. A host's observer known to be best effort that cannot
+/// be built is left out with a warning; any other that cannot be built fails the composite, and so
+/// every decision step and, through the check, the host's start.</para>
 /// </remarks>
 internal sealed class CompositeDecisionObserver : IDecisionObserver
 {
@@ -40,13 +56,29 @@ internal sealed class CompositeDecisionObserver : IDecisionObserver
         ILogger<CompositeDecisionObserver>? logger = null
     )
     {
-        var observers = parts
-            .Select(part => services.GetRequiredKeyedService<IDecisionObserver>(part.Key))
-            .ToList();
+        _logger = logger;
+        var observers = new List<IDecisionObserver>();
+
+        // Built one by one, so a best-effort observer that cannot be built costs only itself. Any
+        // other propagates: whether it was required cannot be told from an observer never built.
+        foreach (var part in parts)
+        {
+            try
+            {
+                observers.Add(services.GetRequiredKeyedService<IDecisionObserver>(part.Key));
+            }
+            catch (Exception e) when (part.Skippable)
+            {
+                _logger?.LogWarning(
+                    e,
+                    "A best-effort decision observer could not be built; it is left out, and the "
+                        + "other observers are told about every decision."
+                );
+            }
+        }
 
         _required = observers.Where(o => o.Required).ToList();
         _bestEffort = observers.Where(o => !o.Required).ToList();
-        _logger = logger;
     }
 
     /// <summary>
@@ -142,7 +174,7 @@ internal static class DecisionObservers
             var key = new object();
             services.Remove(descriptor);
             services.Add(Keyed(descriptor, key));
-            services.AddSingleton(new DecisionObserverPart(key, null));
+            services.AddSingleton(new DecisionObserverPart(key, null, KnownBestEffort(descriptor)));
         }
 
         if (
@@ -157,6 +189,38 @@ internal static class DecisionObservers
             services.AddSingleton<DecisionObserverCheck>();
             services.AddHostedService(sp => sp.GetRequiredService<DecisionObserverCheck>());
         }
+    }
+
+    /// <summary>
+    /// Whether the observer is best effort as registered, without building it: an instance that is
+    /// not required, or a type that leaves <see cref="IDecisionObserver.Required"/> to its default.
+    /// A factory's observer cannot be told without calling it, so it is not.
+    /// </summary>
+    private static bool KnownBestEffort(ServiceDescriptor descriptor)
+    {
+        try
+        {
+            return descriptor switch
+            {
+                { ImplementationInstance: IDecisionObserver instance } => !instance.Required,
+                { ImplementationType: { } type } => !ImplementsRequired(type),
+                _ => false,
+            };
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool ImplementsRequired(Type type)
+    {
+        var getter = typeof(IDecisionObserver)
+            .GetProperty(nameof(IDecisionObserver.Required))!
+            .GetMethod!;
+        var map = type.GetInterfaceMap(typeof(IDecisionObserver));
+        var index = Array.IndexOf(map.InterfaceMethods, getter);
+        return index < 0 || map.TargetMethods[index].DeclaringType != typeof(IDecisionObserver);
     }
 
     private static ServiceDescriptor Keyed(ServiceDescriptor descriptor, object key) =>

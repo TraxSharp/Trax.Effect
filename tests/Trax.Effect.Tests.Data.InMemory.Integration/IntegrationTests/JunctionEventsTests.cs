@@ -667,18 +667,114 @@ public class JunctionEventsTests
     }
 
     [Test]
-    public async Task An_observer_registered_after_AddTrax_is_allowed_when_nothing_must_record()
+    public async Task An_observer_registered_after_AddTrax_refuses_a_host_with_junction_events()
     {
+        var handler = new CapturingHandler();
+        var observer = new CountingObserver();
         await using var provider = JunctionEventTrains
             .Register(new ServiceCollection(), Decider)
+            .AddSingleton<IJunctionEventHandler>(handler)
             .AddTrax(trax => trax.AddEffects(effects => effects.UseInMemory().AddJunctionEvents()))
-            .AddSingleton<IDecisionObserver>(new CountingObserver())
+            .AddSingleton<IDecisionObserver>(observer)
             .BuildServiceProvider();
+        Decider.Use(new ScriptedDecider().Choose(CustomsTier.Red, 0.99));
 
         var gate = provider.GetServices<IHostedService>().OfType<DecisionObserverCheck>().Single();
         var start = () => gate.StartingAsync(CancellationToken.None);
+        await start
+            .Should()
+            .ThrowAsync<InvalidOperationException>(
+                $"junction events withhold a track's steps only when told of its routing. See {Adr}."
+            )
+            .WithMessage("*JunctionEventDecisionObserver*before AddTrax*");
 
-        await start.Should().NotThrowAsync();
+        using var scope = provider.CreateScope();
+        var train = scope.ServiceProvider.GetRequiredService<ICustomsThenStampTrain>();
+        var run = async () => await train.Run(JunctionEventTrains.Parcel());
+        await run.Should().ThrowAsync<InvalidOperationException>().WithMessage("*before AddTrax*");
+        observer.Decided.Should().Be(0, "the run refused before it asked anything");
+        handler
+            .For(((ServiceTrain<Parcel, string>)(object)train).Metadata!.Id)
+            .Should()
+            .NotContain(e => e.Junction!.Name == nameof(Load));
+    }
+
+    [Test]
+    public async Task An_observer_registered_before_AddTrax_leaves_junction_events_withholding()
+    {
+        var handler = new CapturingHandler();
+        var observer = new CountingObserver();
+        var services = JunctionEventTrains
+            .Register(new ServiceCollection(), Decider)
+            .AddSingleton<IDecisionObserver>(observer)
+            .AddSingleton<IJunctionEventHandler>(handler);
+        await using var provider = services
+            .AddTrax(trax => trax.AddEffects(effects => effects.UseInMemory().AddJunctionEvents()))
+            .BuildServiceProvider();
+        Decider.Use(new ScriptedDecider().Choose(CustomsTier.Red, 0.99));
+
+        var gate = provider.GetServices<IHostedService>().OfType<DecisionObserverCheck>().Single();
+        await gate.Invoking(g => g.StartingAsync(CancellationToken.None)).Should().NotThrowAsync();
+
+        using var scope = provider.CreateScope();
+        var train = scope.ServiceProvider.GetRequiredService<ICustomsThenStampTrain>();
+        await train.Run(JunctionEventTrains.Parcel());
+
+        observer.Routed.Should().Be(1);
+        var steps = handler
+            .For(((ServiceTrain<Parcel, string>)(object)train).Metadata!.Id)
+            .Select(e => e.Junction!)
+            .ToList();
+        steps.Should().Contain(j => j.Kind == JunctionRunKind.Route);
+        steps
+            .Where(j => j.Kind == JunctionRunKind.Junction && j.TrackPosition != null)
+            .Should()
+            .NotBeEmpty()
+            .And.OnlyContain(j => j.NameWithheld);
+    }
+
+    [Test]
+    public async Task A_best_effort_observer_that_cannot_be_built_is_left_out()
+    {
+        await using var provider = JunctionEventTrains
+            .Register(new ServiceCollection(), Decider)
+            .AddSingleton<IDecisionObserver, UnbuildableObserver>()
+            .AddTrax(trax =>
+                trax.AddEffects(effects =>
+                    effects.UseInMemory().AddDecisionRecording().AddJunctionEvents()
+                )
+            )
+            .BuildServiceProvider();
+        Decider.Use(new ScriptedDecider().Choose(Lane.Express, 0.9));
+
+        var gate = provider.GetServices<IHostedService>().OfType<DecisionObserverCheck>().Single();
+        await gate.Invoking(g => g.StartingAsync(CancellationToken.None))
+            .Should()
+            .NotThrowAsync("an observer that is best effort cannot stop decisions being recorded");
+
+        using var scope = provider.CreateScope();
+        var train = scope.ServiceProvider.GetRequiredService<ILaneTrain>();
+        (await train.Run(JunctionEventTrains.Parcel())).Should().Be("loaded|stamped");
+        var context = scope.ServiceProvider.GetRequiredService<IDataContext>();
+        (await context.RecordedDecisions.CountAsync(d => d.MetadataId == train.Metadata!.Id))
+            .Should()
+            .Be(1);
+    }
+
+    [Test]
+    public async Task A_required_observer_that_cannot_be_built_refuses_the_host()
+    {
+        await using var provider = JunctionEventTrains
+            .Register(new ServiceCollection(), Decider)
+            .AddSingleton<IDecisionObserver, UnbuildableRequiredObserver>()
+            .AddTrax(trax => trax.AddEffects(effects => effects.UseInMemory().AddJunctionEvents()))
+            .BuildServiceProvider();
+
+        var gate = provider.GetServices<IHostedService>().OfType<DecisionObserverCheck>().Single();
+        await gate.Invoking(g => g.StartingAsync(CancellationToken.None))
+            .Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage("*could not be built*");
     }
 
     [Test]
@@ -1019,6 +1115,32 @@ internal sealed class CountingObserver : IDecisionObserver
         Interlocked.Increment(ref _routed);
         return Task.CompletedTask;
     }
+}
+
+/// <summary>A best-effort observer whose constructor throws.</summary>
+internal sealed class UnbuildableObserver : IDecisionObserver
+{
+    public UnbuildableObserver() => throw new InvalidOperationException("misconfigured");
+
+    public Task Decided(DecisionMade decision, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
+    public Task Routed(TrackRouted routing, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+}
+
+/// <summary>An observer that says whether it is required, and whose constructor throws.</summary>
+internal sealed class UnbuildableRequiredObserver : IDecisionObserver
+{
+    public UnbuildableRequiredObserver() => throw new InvalidOperationException("misconfigured");
+
+    public bool Required => true;
+
+    public Task Decided(DecisionMade decision, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
+    public Task Routed(TrackRouted routing, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
 }
 
 /// <summary>A required observer whose every write fails.</summary>

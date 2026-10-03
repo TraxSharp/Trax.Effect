@@ -607,35 +607,34 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
     {
         Metadata.AssertLoaded();
 
+        // A run refuses to start when an observer registered after AddTrax would keep Trax's own
+        // from being told about its decisions: decision recording would not record them, and
+        // junction events would not withhold the steps of a track whose answer is withheld.
+        if (
+            ServiceProvider?.GetService(typeof(DecisionObserverCheck))
+            is DecisionObserverCheck check
+        )
+        {
+            try
+            {
+                check.ThrowIfReplaced();
+            }
+            catch (InvalidOperationException e)
+            {
+                throw DecisionRun.Classified(
+                    e,
+                    Metadata.Name,
+                    Metadata.ExternalId,
+                    FailureClass.Permanent
+                );
+            }
+        }
+
         if (
             ServiceProvider?.GetService(typeof(IDecisionRunRecorder))
             is IDecisionRunRecorder recorder
         )
-        {
-            // A run that records its decisions refuses to start when an observer registered after
-            // AddTrax would keep the recording from being told about them.
-            if (
-                ServiceProvider.GetService(typeof(DecisionObserverCheck))
-                is DecisionObserverCheck check
-            )
-            {
-                try
-                {
-                    check.ThrowIfReplaced();
-                }
-                catch (InvalidOperationException e)
-                {
-                    throw DecisionRun.Classified(
-                        e,
-                        Metadata.Name,
-                        Metadata.ExternalId,
-                        FailureClass.Permanent
-                    );
-                }
-            }
-
             return await recorder.Begin(Metadata, GetType(), CancellationToken);
-        }
 
         if (Metadata.ReplayDecisionsOf is not null)
         {
