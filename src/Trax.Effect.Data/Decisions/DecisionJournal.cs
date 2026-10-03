@@ -12,6 +12,7 @@ using Trax.Effect.Models.Metadata;
 using Trax.Effect.Models.RecordedDecision;
 using Trax.Effect.Services.Decisions;
 using Trax.Effect.Services.JunctionEvents;
+using Trax.Effect.Utils;
 
 namespace Trax.Effect.Data.Decisions;
 
@@ -117,7 +118,7 @@ public sealed class DecisionJournal(
 
         try
         {
-            record = Record(decision, metadataId);
+            record = Record(decision, metadataId, StateHashToRecord(decision));
         }
         catch (NotSupportedException e)
         {
@@ -228,7 +229,51 @@ public sealed class DecisionJournal(
         }
     }
 
-    private static RecordedDecision Record(DecisionMade decision, long metadataId) =>
+    /// <summary>The state types (or trains) a warning about an unkeyed hash was logged for.</summary>
+    private readonly ConcurrentDictionary<string, byte> _unkeyedWarned = new();
+
+    /// <summary>
+    /// The state hash to record with the answer: Trax.Core's, unless it is unkeyed and the state
+    /// can hold a value marked <c>[TraxSensitive]</c> (or the question is about a type so marked),
+    /// in which case none, so the answer is never replayed. A keyed hash is always recorded.
+    /// </summary>
+    /// <remarks>
+    /// An unkeyed hash can be computed by anyone, so for a state whose values are kept out of
+    /// every other record it is not stored either. A warning saying to configure a key is logged
+    /// once per state type. A decision reported without its state type is treated the same way.
+    /// </remarks>
+    private string? StateHashToRecord(DecisionMade decision)
+    {
+        if (decision.StateHash is not { } hash || hash.StartsWith("k1:", StringComparison.Ordinal))
+            return decision.StateHash;
+
+        var sensitive =
+            decision.StateType is not { } state
+            || TraxRedaction.ReachesSensitiveMember(state)
+            || SensitiveQuestions.IsSensitive(decision.QuestionType, decision.Question.Key);
+
+        if (!sensitive)
+            return hash;
+
+        var about = decision.StateType?.FullName ?? decision.Train;
+        if (_unkeyedWarned.TryAdd(about, 0))
+            _logger.LogWarning(
+                "Answers to questions about {State} are recorded without the hash of their state, "
+                    + "so they are never replayed: the state can hold a value marked "
+                    + "[TraxSensitive], and no state hash key is configured. Configure one with "
+                    + "AddDecisionRecording(o => o.HashStatesWith(key)) or {ConfigurationKey}.",
+                about,
+                DecisionRecordingOptions.StateHashKeyConfigurationKey
+            );
+
+        return null;
+    }
+
+    private static RecordedDecision Record(
+        DecisionMade decision,
+        long metadataId,
+        string? stateHash
+    ) =>
         new()
         {
             MetadataId = metadataId,
@@ -241,7 +286,7 @@ public sealed class DecisionJournal(
             Model = decision.Answer.Model,
             Decider = decision.Decider?.FullName,
             Replayed = decision.Replayed,
-            StateHash = decision.StateHash,
+            StateHash = stateHash,
             Shadows = DecisionJson.Write(decision.Shadows),
             DecidedAt = DateTime.UtcNow,
         };

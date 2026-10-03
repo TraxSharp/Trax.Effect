@@ -175,7 +175,7 @@ public class DecisionRecordingTests
         var one = (await Recorded(first.Metadata!.Id)).Should().ContainSingle().Subject;
         var two = (await Recorded(other.Metadata!.Id)).Should().ContainSingle().Subject;
 
-        one.StateHash.Should().MatchRegex("^[0-9a-f]{64}$");
+        one.StateHash.Should().MatchRegex("^s1:[0-9a-f]{64}$");
         two.StateHash.Should().NotBe(one.StateHash, $"the states differ. See {Adr}.");
     }
 

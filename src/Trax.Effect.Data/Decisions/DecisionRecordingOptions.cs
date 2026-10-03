@@ -1,3 +1,5 @@
+using Trax.Core.Decisions;
+
 namespace Trax.Effect.Data.Decisions;
 
 /// <summary>
@@ -36,6 +38,36 @@ public sealed class DecisionRecordingOptions
             );
 
         MaxReplayAge = maxAge;
+        return this;
+    }
+
+    /// <summary>
+    /// The configuration key <c>AddDecisionRecording</c> reads a state hash key from, base64, when
+    /// <see cref="HashStatesWith"/> was not called: <c>Trax:Decisions:StateHashKey</c>.
+    /// </summary>
+    public const string StateHashKeyConfigurationKey = "Trax:Decisions:StateHashKey";
+
+    /// <summary>The key given to <see cref="HashStatesWith"/>, or null.</summary>
+    internal StateHashKey? StateHashKey { get; private set; }
+
+    /// <summary>
+    /// Keys the hash of each decision's state with <paramref name="key"/>: an HMAC-SHA256 under it,
+    /// which only a holder of the key can compute, instead of a plain SHA-256. Without this call
+    /// the key is read, base64, from configuration under <see cref="StateHashKeyConfigurationKey"/>,
+    /// and without either the hash is unkeyed.
+    /// </summary>
+    /// <remarks>
+    /// Every process that may repeat a run must use the same key: an answer recorded under one key,
+    /// or none, is never replayed under another, so changing it means the next repeated run asks
+    /// afresh, once. Keep it as the host keeps its other secrets. Without a key, the journal records
+    /// no state hash for a question about a state that reaches a member marked
+    /// <c>[TraxSensitive]</c>, so such an answer is never replayed, and logs a warning saying so.
+    /// </remarks>
+    /// <param name="key">At least 32 bytes, best drawn from a cryptographic random source.</param>
+    /// <exception cref="ArgumentException"><paramref name="key"/> is null or shorter than 32 bytes.</exception>
+    public DecisionRecordingOptions HashStatesWith(byte[] key)
+    {
+        StateHashKey = new StateHashKey(key);
         return this;
     }
 }

@@ -12,8 +12,10 @@ namespace Trax.Effect.Data.Decisions
     }
     public sealed class DecisionRecordingOptions
     {
+        public const string StateHashKeyConfigurationKey = "Trax:Decisions:StateHashKey";
         public static readonly System.TimeSpan DefaultMaxReplayAge;
         public System.TimeSpan MaxReplayAge { get; }
+        public Trax.Effect.Data.Decisions.DecisionRecordingOptions HashStatesWith(byte[] key) { }
         public Trax.Effect.Data.Decisions.DecisionRecordingOptions ReplayAnswersFor(System.TimeSpan maxAge) { }
     }
     public static class DecisionReplays

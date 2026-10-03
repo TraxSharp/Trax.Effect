@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -146,6 +147,79 @@ public static class TraxRedaction
             var declared = contract.GetProperty(clrMember.Name);
             if (declared is not null && declared.IsDefined(typeof(TraxSensitiveAttribute), false))
                 return true;
+        }
+
+        return false;
+    }
+
+    private static readonly ConcurrentDictionary<Type, bool> Reaches = new();
+
+    /// <summary>
+    /// Whether a value of <paramref name="type"/> can hold a value marked
+    /// <see cref="TraxSensitiveAttribute"/>: the type itself is marked, or any instance member,
+    /// public or not, of it or of a type it holds (a member's type, an element type, a generic
+    /// argument), recursively, is marked as the masking finds a mark (on the member, the record
+    /// parameter it binds to, or an interface member it implements). Framework types are not
+    /// looked into, only their generic arguments and element types.
+    /// </summary>
+    internal static bool ReachesSensitiveMember(Type type) =>
+        Reaches.GetOrAdd(type, t => Reach(t, []));
+
+    private static bool Reach(Type type, HashSet<Type> seen)
+    {
+        if (!seen.Add(type))
+            return false;
+
+        if (type.IsDefined(typeof(TraxSensitiveAttribute), inherit: true))
+            return true;
+
+        if (type.HasElementType && type.GetElementType() is { } element && Reach(element, seen))
+            return true;
+
+        if (type.IsGenericType && type.GetGenericArguments().Any(a => Reach(a, seen)))
+            return true;
+
+        if (
+            type.IsPrimitive
+            || type.IsEnum
+            || type.IsPointer
+            || type.Namespace?.StartsWith("System", StringComparison.Ordinal) == true
+        )
+            return false;
+
+        const BindingFlags members =
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+        for (
+            var current = type;
+            current is not null && current != typeof(object);
+            current = current.BaseType
+        )
+        {
+            var parameters = current
+                .GetConstructors(members)
+                .SelectMany(c => c.GetParameters())
+                .Where(p => p.IsDefined(typeof(TraxSensitiveAttribute), inherit: false))
+                .Select(p => p.Name)
+                .ToHashSet(StringComparer.Ordinal);
+
+            foreach (var property in current.GetProperties(members | BindingFlags.DeclaredOnly))
+                if (
+                    property.IsDefined(typeof(TraxSensitiveAttribute), inherit: true)
+                    || parameters.Contains(property.Name)
+                    || current
+                        .GetInterfaces()
+                        .Select(i => i.GetProperty(property.Name))
+                        .Any(p => p?.IsDefined(typeof(TraxSensitiveAttribute), false) == true)
+                )
+                    return true;
+
+            foreach (var field in current.GetFields(members | BindingFlags.DeclaredOnly))
+                if (
+                    field.IsDefined(typeof(TraxSensitiveAttribute), inherit: false)
+                    || Reach(field.FieldType, seen)
+                )
+                    return true;
         }
 
         return false;

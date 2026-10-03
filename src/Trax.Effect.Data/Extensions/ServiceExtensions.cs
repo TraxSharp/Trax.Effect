@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -152,6 +153,13 @@ public static class ServiceExtensions
         // Built by the container, so a journal the host registers itself is handed the same
         // options as this one.
         services.TryAddSingleton<DecisionJournal>();
+        // Trax.Core keys each state hash with the StateHashKey it finds in the container. One the
+        // host registered itself is kept; otherwise the options' key, else configuration's, else
+        // none, and the hash is unkeyed.
+        services.TryAddSingleton<StateHashKey>(sp =>
+            sp.GetRequiredService<DecisionRecordingOptions>().StateHashKey
+            ?? ConfiguredStateHashKey(sp)!
+        );
         // Beside any other observer (a host's own, junction events), never in place of one.
         DecisionObservers.Add(
             services,
@@ -234,5 +242,34 @@ public static class ServiceExtensions
         );
 
         return configurationBuilder;
+    }
+
+    /// <summary>
+    /// The state hash key in configuration, base64, under
+    /// <see cref="DecisionRecordingOptions.StateHashKeyConfigurationKey"/>, or null when there is
+    /// none. One that is not base64 or is shorter than 32 bytes throws, so the state is not hashed
+    /// and nothing replays, rather than falling back to an unkeyed hash.
+    /// </summary>
+    private static StateHashKey? ConfiguredStateHashKey(IServiceProvider services)
+    {
+        var configured = services
+            .GetService<IConfiguration>()
+            ?[DecisionRecordingOptions.StateHashKeyConfigurationKey];
+        if (string.IsNullOrWhiteSpace(configured))
+            return null;
+
+        try
+        {
+            return new StateHashKey(Convert.FromBase64String(configured.Trim()));
+        }
+        catch (Exception e) when (e is FormatException or ArgumentException)
+        {
+            throw new InvalidOperationException(
+                $"The state hash key in configuration ({DecisionRecordingOptions.StateHashKeyConfigurationKey}) "
+                    + "must be base64 of at least 32 bytes. Until it is, decision states are not "
+                    + "hashed and no recorded answer is replayed.",
+                e
+            );
+        }
     }
 }
