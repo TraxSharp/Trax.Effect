@@ -508,7 +508,6 @@ public sealed class DecisionJournal(
                         m.ReplayDecisionsOf,
                         m.DecisionsRecorded,
                         m.ReplayAbandoned,
-                        m.ManifestId,
                     })
                     .FirstOrDefaultAsync(cancellationToken);
 
@@ -530,15 +529,9 @@ public sealed class DecisionJournal(
                 }
 
                 // A run that abandoned its replay asked afresh, so it never acted on the answers
-                // of the run it named. A manifest's retry on a host that records no decisions
-                // always does, whether or not its row says so yet (the mark is written with its
-                // outcome there, which a run that died mid-way never wrote).
-                var abandoned =
-                    link.ReplayDecisionsOf is not null
-                    && (
-                        link.ReplayAbandoned
-                        || (!link.DecisionsRecorded && link.ManifestId is not null)
-                    );
+                // of the run it named. One that never started, or failed before its first
+                // junction, carries no mark and is passed through as before.
+                var abandoned = link.ReplayDecisionsOf is not null && link.ReplayAbandoned;
 
                 // A run that did not record its decisions may have acted on answers nobody can
                 // know now. One that replays an earlier run made none of its own, because a run

@@ -476,6 +476,28 @@ public class DecisionRecordingTests
     }
 
     [Test]
+    public async Task A_requeue_of_a_retry_that_never_started_replays_the_run_before_it()
+    {
+        Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
+        var (original, _) = await Run<IRouteOrder>(new Order("o-never-started", 20m));
+
+        // A manifest's retry whose row was written but which never ran: it abandoned nothing.
+        var retry = await Seed<IRouteOrder>(
+            replayDecisionsOf: original.Metadata!.Id,
+            manifestId: 1
+        );
+        var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));
+
+        var (_, output) = await Run<IRouteOrder>(
+            new Order("o-never-started", 20m),
+            replayDecisionsOf: retry
+        );
+
+        output.Should().Be("held for review", "the chain passes through a run that never ran");
+        decider.Requests.Should().BeEmpty();
+    }
+
+    [Test]
     public async Task A_replay_stops_at_a_run_that_abandoned_its_replay()
     {
         Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
@@ -509,9 +531,10 @@ public class DecisionRecordingTests
         Decider.Use(new ScriptedDecider().Choose(Fulfilment.ManualCheck));
         var (original, _) = await Run<IRouteOrder>(new Order("o-unrecorded-retry", 20m));
 
-        // A manifest's retry on a host that records nothing, which died before its outcome.
+        // A manifest's retry on a host that records nothing, which asked afresh.
         var retry = await Seed<IRouteOrder>(
             replayDecisionsOf: original.Metadata!.Id,
+            replayAbandoned: true,
             manifestId: 1
         );
         var decider = Decider.Use(new ScriptedDecider().Choose(Fulfilment.Standard));

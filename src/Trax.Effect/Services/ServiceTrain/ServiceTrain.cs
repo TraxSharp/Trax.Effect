@@ -368,6 +368,16 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
         // recorded even when it dies before it ends. See Trax.Docs/adr/0041.
         Metadata.DecisionsRecorded =
             ServiceProvider.GetService(typeof(IDecisionRunRecorder)) is not null;
+
+        // A manifest's retry on a host that records no decisions cannot replay, and asks afresh
+        // (BeginDecisions). Marked on the first write, so a run that dies mid-way carries it too,
+        // and a later replay of it stops here instead of going on to the run it named.
+        if (
+            !Metadata.DecisionsRecorded
+            && Metadata.ReplayDecisionsOf is not null
+            && Metadata.ManifestId is not null
+        )
+            Metadata.ReplayAbandoned = true;
         await EffectRunner.Update(Metadata);
 
         // Not the caller's token, for the same reason SaveOutcome does not take it. An
@@ -647,10 +657,6 @@ public abstract class ServiceTrain<TIn, TOut> : Train<TIn, TOut>, IServiceTrain<
             // original's decisions, so it asks afresh rather than failing the retry.
             if (Metadata.ManifestId is null)
                 throw DecisionRun.Unreplayable(Metadata, why);
-
-            // Recorded, so a later replay of this run stops here rather than going on to the
-            // run it named, whose answers this one never acted on. Written with the outcome.
-            Metadata.ReplayAbandoned = true;
 
             Logger?.LogWarning(
                 "Retry {RunId} of train ({TrainName}) asks its questions afresh instead of replaying "
