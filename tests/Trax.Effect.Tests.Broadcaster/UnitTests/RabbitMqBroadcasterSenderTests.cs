@@ -396,7 +396,7 @@ public class RabbitMqBroadcasterSenderTests
                 Arg.Any<CancellationToken>()
             );
         await second
-            .Received(1)
+            .DidNotReceive()
             .ExchangeDeclareAsync(
                 "trax.lifecycle.junctions",
                 Arg.Any<string>(),

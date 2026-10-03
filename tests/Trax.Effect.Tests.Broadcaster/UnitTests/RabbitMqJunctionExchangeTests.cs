@@ -150,4 +150,209 @@ public class RabbitMqJunctionExchangeTests
 
         await receiver.StopAsync(CancellationToken.None);
     }
+
+    private static RabbitMqBroadcasterOptions NewOptions() =>
+        new()
+        {
+            ConnectionString = AmqpUri,
+            ExchangeName = $"trax.test.junctions.{Guid.NewGuid():N}",
+        };
+
+    private static async Task<IConnection?> Connect()
+    {
+        try
+        {
+            return await new ConnectionFactory { Uri = new Uri(AmqpUri) }.CreateConnectionAsync();
+        }
+        catch (Exception ex)
+        {
+            Assert.Ignore($"RabbitMQ not reachable at {AmqpUri}: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static async Task Publish(
+        IChannel channel,
+        string exchange,
+        TrainLifecycleEventMessage message
+    )
+    {
+        await channel.ExchangeDeclareAsync(exchange, ExchangeType.Fanout, durable: true);
+        await channel.BasicPublishAsync(
+            exchange,
+            string.Empty,
+            JsonSerializer.SerializeToUtf8Bytes(message)
+        );
+    }
+
+    [Test]
+    public async Task A_receiver_takes_each_kind_of_event_only_from_its_own_exchange()
+    {
+        var options = NewOptions();
+        await using var connection = await Connect();
+        await using var receiver = new RabbitMqTrainEventReceiver(
+            options,
+            NullLogger<RabbitMqTrainEventReceiver>.Instance
+        );
+        var received = new ConcurrentQueue<string>();
+        var gotBoth = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await receiver.StartAsync(
+            (message, _) =>
+            {
+                received.Enqueue(message.ExternalId);
+                if (received.Count >= 2)
+                    gotBoth.TrySetResult();
+                return Task.CompletedTask;
+            },
+            CancellationToken.None
+        );
+
+        await using var channel = await connection!.CreateChannelAsync();
+        // Each published where it does not belong, then each where it does, in that order.
+        await Publish(
+            channel,
+            options.ExchangeName,
+            Message("JunctionStarted", true) with
+            {
+                ExternalId = "misplaced-step",
+            }
+        );
+        await Publish(
+            channel,
+            options.EffectiveJunctionExchangeName,
+            Message("Completed", false) with
+            {
+                ExternalId = "misplaced-train",
+            }
+        );
+        await Publish(
+            channel,
+            options.ExchangeName,
+            Message("Completed", false) with
+            {
+                ExternalId = "train",
+            }
+        );
+        await Publish(
+            channel,
+            options.EffectiveJunctionExchangeName,
+            Message("JunctionStarted", true) with
+            {
+                ExternalId = "step",
+            }
+        );
+        await gotBoth.Task.WaitAsync(Timeout);
+
+        received
+            .Should()
+            .BeEquivalentTo(
+                ["train", "step"],
+                $"an event from an exchange that is not its own is dropped. See {Adr}."
+            );
+        await receiver.StopAsync(CancellationToken.None);
+    }
+
+    [Test]
+    public async Task A_junction_exchange_the_broker_refuses_does_not_stop_train_events()
+    {
+        var options = NewOptions();
+        await using var connection = await Connect();
+        await using (var setup = await connection!.CreateChannelAsync())
+        {
+            // Declared elsewhere with another type, so declaring it as a fanout is refused.
+            await setup.ExchangeDeclareAsync(
+                options.EffectiveJunctionExchangeName,
+                ExchangeType.Direct,
+                durable: false,
+                autoDelete: true
+            );
+        }
+
+        await using var receiver = new RabbitMqTrainEventReceiver(
+            options,
+            NullLogger<RabbitMqTrainEventReceiver>.Instance
+        );
+        var received = new TaskCompletionSource<string>(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        await receiver.StartAsync(
+            (message, _) =>
+            {
+                received.TrySetResult(message.ExternalId);
+                return Task.CompletedTask;
+            },
+            CancellationToken.None
+        );
+
+        await using var broadcaster = new RabbitMqTrainEventBroadcaster(
+            options,
+            NullLogger<RabbitMqTrainEventBroadcaster>.Instance
+        );
+        await broadcaster.PublishAsync(Message("JunctionStarted", true), CancellationToken.None);
+        await broadcaster.PublishAsync(Message("Completed", false), CancellationToken.None);
+
+        (await received.Task.WaitAsync(Timeout))
+            .Should()
+            .Be(
+                "Completed",
+                $"train events keep flowing when the junction exchange is refused. See {Adr}."
+            );
+        await receiver.StopAsync(CancellationToken.None);
+    }
+
+    [Test]
+    public async Task The_junction_exchange_is_declared_only_where_junction_events_are_used()
+    {
+        var options = NewOptions();
+        await using var connection = await Connect();
+        await using (
+            var receiver = new RabbitMqTrainEventReceiver(
+                options,
+                NullLogger<RabbitMqTrainEventReceiver>.Instance
+            )
+            {
+                BindJunctionExchange = false,
+            }
+        )
+        {
+            var received = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously
+            );
+            await receiver.StartAsync(
+                (_, _) =>
+                {
+                    received.TrySetResult();
+                    return Task.CompletedTask;
+                },
+                CancellationToken.None
+            );
+
+            await using (
+                var broadcaster = new RabbitMqTrainEventBroadcaster(
+                    options,
+                    NullLogger<RabbitMqTrainEventBroadcaster>.Instance
+                )
+            )
+            {
+                await broadcaster.PublishAsync(Message("Completed", false), CancellationToken.None);
+                await received.Task.WaitAsync(Timeout);
+            }
+
+            await receiver.StopAsync(CancellationToken.None);
+        }
+
+        await using var probe = await connection!.CreateChannelAsync();
+        var passive = () =>
+            probe.ExchangeDeclarePassiveAsync(options.EffectiveJunctionExchangeName);
+        (
+            await passive
+                .Should()
+                .ThrowAsync<RabbitMQ.Client.Exceptions.OperationInterruptedException>()
+        )
+            .Which.ShutdownReason!.ReplyCode.Should()
+            .Be(
+                (ushort)404,
+                $"no host without junction events declares their exchange. See {Adr}."
+            );
+    }
 }

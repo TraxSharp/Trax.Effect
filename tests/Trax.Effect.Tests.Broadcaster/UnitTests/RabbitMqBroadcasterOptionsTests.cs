@@ -82,4 +82,26 @@ public class RabbitMqBroadcasterOptionsTests
 
         act.Should().Throw<ArgumentException>().WithMessage("*JunctionExchangeName to differ*");
     }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task UseRabbitMq_binds_the_junction_exchange_only_on_a_host_that_handles_junction_events(
+        bool handles
+    )
+    {
+        var services = new ServiceCollection();
+        if (handles)
+            services.AddSingleton<Trax.Effect.Services.TrainEventBroadcaster.IJunctionEventHandler>(
+                NSubstitute.Substitute.For<Trax.Effect.Services.TrainEventBroadcaster.IJunctionEventHandler>()
+            );
+        new TraxBuilder(services, new EffectRegistry()).AddEffects(effects =>
+            effects.UseBroadcaster(b => b.UseRabbitMq("amqp://localhost"))
+        );
+        await using var provider = services.BuildServiceProvider();
+
+        provider
+            .GetRequiredService<RabbitMqTrainEventReceiver>()
+            .BindJunctionExchange.Should()
+            .Be(handles);
+    }
 }

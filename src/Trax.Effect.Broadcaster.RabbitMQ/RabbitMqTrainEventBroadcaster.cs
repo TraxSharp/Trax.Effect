@@ -81,6 +81,8 @@ internal class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDis
 
     private IConnection? _connection;
     private IChannel? _channel;
+    private IChannel? _junctionChannel;
+    private int _junctionFailing;
     private long _dropped;
     private long _droppedSinceReport;
     private long _refused;
@@ -165,7 +167,12 @@ internal class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDis
         {
             while (await _queue.ReadAsync(ct) is { } message)
             {
-                await SendWithRetryAsync(message, ct);
+                // A junction event goes on a channel and exchange of their own, and is given up at
+                // once when it cannot be sent, so it never holds up or closes the train events.
+                if (IsJunctionEvent(message))
+                    await SendJunctionAsync(message, ct);
+                else
+                    await SendWithRetryAsync(message, ct);
 
                 if (_queue.Count == 0)
                 {
@@ -274,9 +281,43 @@ internal class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDis
             _ => false,
         };
 
+    private async Task SendJunctionAsync(TrainLifecycleEventMessage message, CancellationToken ct)
+    {
+        try
+        {
+            await SendAsync(message, ct);
+            if (Interlocked.Exchange(ref _junctionFailing, 0) == 1)
+                _logger?.LogInformation(
+                    "RabbitMQ broadcaster is publishing junction events to {Exchange} again.",
+                    _options.EffectiveJunctionExchangeName
+                );
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            await DisposeQuietlyAsync(_junctionChannel);
+            _junctionChannel = null;
+
+            // One warning per outage; the steps lost inside it are Debug.
+            if (Interlocked.Exchange(ref _junctionFailing, 1) == 0)
+                _logger?.LogWarning(
+                    ex,
+                    "RabbitMQ broadcaster cannot publish junction events to exchange {Exchange}; "
+                        + "dropping them until it can. Train events are not affected.",
+                    _options.EffectiveJunctionExchangeName
+                );
+            else
+                _logger?.LogDebug(ex, "RabbitMQ broadcaster dropped a junction event.");
+        }
+    }
+
     private async Task SendAsync(TrainLifecycleEventMessage message, CancellationToken ct)
     {
-        var channel = await EnsureChannelAsync(ct);
+        var junction = IsJunctionEvent(message);
+        var channel = await EnsureChannelAsync(junction, ct);
         var body = JsonSerializer.SerializeToUtf8Bytes(message);
 
         var properties = new BasicProperties
@@ -290,9 +331,7 @@ internal class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDis
         bound.CancelAfter(_publishTimeout);
         // A junction event goes to an exchange of its own, which only receivers that know junction
         // events bind, so one that predates them never receives one.
-        var exchange = IsJunctionEvent(message)
-            ? _options.EffectiveJunctionExchangeName
-            : _options.ExchangeName;
+        var exchange = junction ? _options.EffectiveJunctionExchangeName : _options.ExchangeName;
 
         await channel.BasicPublishAsync(
             exchange: exchange,
@@ -311,14 +350,21 @@ internal class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDis
         );
     }
 
-    // Only the sender calls this, so no lock is needed.
-    private async Task<IChannel> EnsureChannelAsync(CancellationToken ct)
+    // Only the sender calls this, so no lock is needed. Train events and junction events each have
+    // a channel of their own, which declares only its own exchange, so a junction exchange the
+    // broker refuses closes the junction channel and never the train one. The junction exchange is
+    // declared only once there is a junction event to send.
+    private async Task<IChannel> EnsureChannelAsync(bool junction, CancellationToken ct)
     {
-        if (_channel is { IsOpen: true })
-            return _channel;
+        var current = junction ? _junctionChannel : _channel;
+        if (current is { IsOpen: true })
+            return current;
 
-        await DisposeQuietlyAsync(_channel);
-        _channel = null;
+        await DisposeQuietlyAsync(current);
+        if (junction)
+            _junctionChannel = null;
+        else
+            _channel = null;
 
         if (_connection is not { IsOpen: true })
         {
@@ -335,20 +381,13 @@ internal class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDis
         {
             // Declared on every channel: the exchange may have been deleted, or lost with a broker
             // restart, since the last one.
-            foreach (
-                var exchange in new[]
-                {
-                    _options.ExchangeName,
-                    _options.EffectiveJunctionExchangeName,
-                }
-            )
-                await channel.ExchangeDeclareAsync(
-                    exchange: exchange,
-                    type: ExchangeType.Fanout,
-                    durable: true,
-                    autoDelete: false,
-                    cancellationToken: bound.Token
-                );
+            await channel.ExchangeDeclareAsync(
+                exchange: junction ? _options.EffectiveJunctionExchangeName : _options.ExchangeName,
+                type: ExchangeType.Fanout,
+                durable: true,
+                autoDelete: false,
+                cancellationToken: bound.Token
+            );
         }
         catch
         {
@@ -356,7 +395,10 @@ internal class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDis
             throw;
         }
 
-        _channel = channel;
+        if (junction)
+            _junctionChannel = channel;
+        else
+            _channel = channel;
         return channel;
     }
 
@@ -378,6 +420,8 @@ internal class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDis
 
         if (connectionToo)
         {
+            await DisposeQuietlyAsync(_junctionChannel);
+            _junctionChannel = null;
             await DisposeQuietlyAsync(_connection);
             _connection = null;
         }
@@ -460,6 +504,7 @@ internal class RabbitMqTrainEventBroadcaster : ITrainEventBroadcaster, IAsyncDis
             );
 
         await DisposeQuietlyAsync(_channel);
+        await DisposeQuietlyAsync(_junctionChannel);
         await DisposeQuietlyAsync(_connection);
         _abandon.Dispose();
         GC.SuppressFinalize(this);

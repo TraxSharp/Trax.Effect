@@ -65,7 +65,17 @@ public static class RabbitMqBroadcasterExtensions
                 sp.GetRequiredService<RabbitMqTrainEventBroadcaster>()
             );
         builder
-            .ServiceCollection.AddSingleton<RabbitMqTrainEventReceiver>()
+            .ServiceCollection.AddSingleton(sp => new RabbitMqTrainEventReceiver(
+                sp.GetRequiredService<RabbitMqBroadcasterOptions>(),
+                sp.GetService<Microsoft.Extensions.Logging.ILogger<RabbitMqTrainEventReceiver>>()
+            )
+            {
+                // Only a host that handles junction events binds their exchange.
+                BindJunctionExchange =
+                    sp.GetService<IServiceProviderIsService>()
+                        ?.IsService(typeof(IJunctionEventHandler))
+                    ?? true,
+            })
             .AddSingleton<ITrainEventReceiver>(sp =>
                 sp.GetRequiredService<RabbitMqTrainEventReceiver>()
             );

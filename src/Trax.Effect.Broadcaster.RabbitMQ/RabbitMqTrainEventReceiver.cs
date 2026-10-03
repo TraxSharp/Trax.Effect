@@ -37,11 +37,10 @@ public class RabbitMqTrainEventReceiver : ITrainEventReceiver
         _logger = logger;
     }
 
-    private string[] Exchanges => [_options.ExchangeName, _options.EffectiveJunctionExchangeName];
-
     /// <summary>
-    /// Connects, declares the train and junction fanout exchanges, binds a new exclusive
-    /// auto-delete queue to both and
+    /// Connects, declares the train fanout exchange, binds a new exclusive auto-delete queue to it
+    /// (and to the junction exchange, on a channel of its own, when
+    /// <see cref="BindJunctionExchange"/>), and
     /// starts consuming, passing each deserialized event to <paramref name="handler"/>.
     /// </summary>
     /// <param name="handler">
@@ -110,14 +109,13 @@ public class RabbitMqTrainEventReceiver : ITrainEventReceiver
             cancellationToken: ct
         );
 
-        foreach (var exchange in Exchanges)
-            await _channel.ExchangeDeclareAsync(
-                exchange: exchange,
-                type: ExchangeType.Fanout,
-                durable: true,
-                autoDelete: false,
-                cancellationToken: ct
-            );
+        await _channel.ExchangeDeclareAsync(
+            exchange: _options.ExchangeName,
+            type: ExchangeType.Fanout,
+            durable: true,
+            autoDelete: false,
+            cancellationToken: ct
+        );
 
         var queueDeclareResult = await _channel.QueueDeclareAsync(
             queue: string.Empty,
@@ -128,15 +126,15 @@ public class RabbitMqTrainEventReceiver : ITrainEventReceiver
         );
         _queueName = queueDeclareResult.QueueName;
 
-        // Bound to the junction exchange too, so this receiver gets junction events; one that
-        // predates them binds only the train exchange and never does.
-        foreach (var exchange in Exchanges)
-            await _channel.QueueBindAsync(
-                queue: _queueName,
-                exchange: exchange,
-                routingKey: string.Empty,
-                cancellationToken: ct
-            );
+        await _channel.QueueBindAsync(
+            queue: _queueName,
+            exchange: _options.ExchangeName,
+            routingKey: string.Empty,
+            cancellationToken: ct
+        );
+
+        if (BindJunctionExchange)
+            await BindJunctionsAsync(_connection, _queueName, ct);
 
         var consumer = new AsyncEventingBasicConsumer(channel);
         consumer.ReceivedAsync += async (_, ea) =>
@@ -145,7 +143,7 @@ public class RabbitMqTrainEventReceiver : ITrainEventReceiver
             {
                 var message = JsonSerializer.Deserialize<TrainLifecycleEventMessage>(ea.Body.Span);
 
-                if (message is not null)
+                if (message is not null && FromItsExchange(message, ea.Exchange))
                 {
                     await handler(message, ct);
                 }
@@ -170,6 +168,75 @@ public class RabbitMqTrainEventReceiver : ITrainEventReceiver
             consumer: consumer,
             cancellationToken: ct
         );
+    }
+
+    /// <summary>
+    /// Whether this receiver declares the junction exchange and binds its queue to it. Set by
+    /// <c>UseRabbitMq</c> to whether the host has an <c>IJunctionEventHandler</c>; true when the
+    /// receiver is constructed directly.
+    /// </summary>
+    internal bool BindJunctionExchange { get; init; } = true;
+
+    // On a channel of its own: a junction exchange the broker refuses closes that channel, never
+    // the one the train events arrive on.
+    private async Task BindJunctionsAsync(
+        IConnection connection,
+        string queue,
+        CancellationToken ct
+    )
+    {
+        var junctions = _options.EffectiveJunctionExchangeName;
+        try
+        {
+            await using var channel = await connection.CreateChannelAsync(cancellationToken: ct);
+            await channel.ExchangeDeclareAsync(
+                exchange: junctions,
+                type: ExchangeType.Fanout,
+                durable: true,
+                autoDelete: false,
+                cancellationToken: ct
+            );
+            await channel.QueueBindAsync(
+                queue: queue,
+                exchange: junctions,
+                routingKey: string.Empty,
+                cancellationToken: ct
+            );
+        }
+        catch (Exception ex)
+            when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            _logger?.LogWarning(
+                ex,
+                "RabbitMQ receiver could not bind to the junction exchange {Exchange}; it receives "
+                    + "no junction events until it restarts. Train events are not affected.",
+                junctions
+            );
+        }
+    }
+
+    // A train event arrives only from the train exchange, a junction event only from the junction
+    // exchange; anything else was published where it does not belong and is dropped.
+    private bool FromItsExchange(TrainLifecycleEventMessage message, string exchange)
+    {
+        var junction =
+            message.Junction is not null
+            || TrainLifecycleEventMessage.IsJunctionEvent(message.EventType);
+        var expected = junction ? _options.EffectiveJunctionExchangeName : _options.ExchangeName;
+
+        if (exchange == expected)
+            return true;
+
+        _logger?.LogWarning(
+            "RabbitMQ receiver dropped {EventType} for train {TrainName}: a {Kind} event arrived "
+                + "from exchange {Exchange}, not {Expected}.",
+            message.EventType,
+            message.TrainName,
+            junction ? "junction" : "train",
+            exchange,
+            expected
+        );
+        return false;
     }
 
     /// <summary>

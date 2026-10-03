@@ -47,6 +47,18 @@ run's own events no longer share one broker queue, so a subscriber can see a run
 before its last step arrives; each carries its position and timestamps, and the API and dashboard
 order by them.
 
+The junction exchange is declared only where junction events are used: a publisher declares it when
+it first has a step to send, on a channel of its own, and a receiver binds it only on a host with an
+`IJunctionEventHandler`, also on a channel of its own. A junction exchange the broker refuses (one
+declared elsewhere with another type, say) therefore drops steps, logged, and never closes the
+channel train events use. A receiver takes a train event only from the train exchange and a step
+only from the junction exchange, and drops anything that arrives from the other.
+
+**Upgrading.** Nothing needs to happen in order. Upgrade the hubs that should show steps (they bind
+the junction exchange once they have a junction event handler), then turn on `AddJunctionEvents` on
+the workers; until a hub binds it, the steps a worker publishes go nowhere. Rolling back a worker
+stops the steps and nothing else; a hub left on an older version never sees one.
+
 **What a step carries.** A junction's input and output, the train's input and output, a failure's
 message and the state a decider was shown can all hold user data, and a step goes to other
 processes and, through the SignalR sink, to browsers. Train events already keep a failure reason
@@ -128,7 +140,9 @@ Local handlers run on the run's path and must return quickly.
   decision observers compose.
 - `JunctionEventRoutingTests` pins that a junction event reaches junction event handlers only.
 - `RabbitMqJunctionExchangeTests` pins that a receiver bound only to the train exchange receives no
-  junction event, while a current receiver receives both.
+  junction event, while a current receiver receives both; that a refused junction exchange leaves
+  train events flowing; that the junction exchange is declared only where steps are used; and that
+  each exchange delivers only its own kind of event.
 - `SignalRJunctionEventTests` pins that the SignalR sink sends steps only when asked, through the
   train filter it already applies, without answers unless asked for them, through a host's own
   projection when it has one, and that its full queue gives up steps first.
@@ -140,6 +154,7 @@ tests check the fields that exist against known secrets, not the shape of every 
 
 ## Changelog
 
+- **2026-10-02**: The junction exchange is declared only where steps are used, on channels of its own, and each exchange carries only its own kind of event.
 - **2026-10-02**: A run with no row has no steps; sensitivity is decided by the question's type; the journal's log withholds sensitive answers.
 - **2026-10-02**: The attempt query is indexed, reads a bounded number of runs, and is timed out.
 - **2026-10-02**: An observer registered after `AddTrax` refuses the host while decisions are recorded.
